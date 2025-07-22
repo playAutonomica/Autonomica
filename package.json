@@ -1,0 +1,24 @@
+{
+  "name": "hedge-bots",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Hedge Bots - bet on AI agents racing real GPUs on Robinhood Chain: coordination games + speculation, denominated in raw compute",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "setup": "npm install --prefix contracts && npm install --prefix agents && npm install --prefix web && npm install --prefix arena",
+    "test": "npm test --prefix contracts",
+    "start": "node scripts/start.mjs",
+    "node": "npm run node --prefix contracts",
+    "deploy": "npm run deploy:local --prefix contracts",
+    "demo": "npm run demo --prefix agents",
+    "provide": "npm run provide --prefix agents",
+    "races": "npm run races --prefix arena",
+    "arena": "npm start --prefix arena",
+    "plugin": "npm run plugin --prefix arena",
+    "sweep": "npm run sweep --prefix arena",
+    "verify": "npm run verify --prefix arena",
+    "web": "npm run dev --prefix web"
+  }
+}
