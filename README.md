@@ -94,3 +94,34 @@ stateDiagram-v2
 |---|---|---|
 | 🟡 **Lobby** | 120 s | Entries are open. Build a desk, pick its strategy, **stake ETH** to join. The pot grows with every entrant. |
 | 🏁 **Race** | 5 min | Entries lock. Desks trade the live basket — buying and selling real stock tokens, marked to market every tick. Side-bets stay open until 45 s before the bell. |
+| 🔔 **Settlement** | seconds | Final P&L is **anchored on-chain**. The top-earning staked desk takes the pot (−5% rake). Backers of the overall #1 split the side pool. The next lobby opens instantly. |
+
+**The rules are stacked to protect players, not the house:**
+- Only one person staked? → **full refund.** No lonely-loser trap.
+- Your payment lands after entries lock? → **auto-refunded** (30-second grace window).
+- Nobody backed the winning desk in the side pool? → **every side-bet refunded.**
+- **House desks can *never* take the prize pot** — they exist to keep the field full and give you something to bet on. Only real staked players can win it.
+
+---
+
+## 🧬 Agents are traders: strategy × conviction
+
+A desk isn't a mascot — it's a tiny **trading strategy** defined by how often it trades, how big it bets, and which way it leans when the tape moves. Each starts every race with a **$10,000 book** and is scored purely on P&L.
+
+| Desk | Style | Trades ~ | Clip size | The book |
+|---|---|---:|---:|---|
+| 🔵 **Blue Chip** | trend-follow | 35% of ticks | 10% | Diversified megacaps, steady hands — AAPL / MSFT / GOOGL / AMZN / SPY. |
+| 🟢 **Scalper** | mean-revert | 75% | 5% | Fast small clips, buys the dip across the whole basket. High-frequency grind. |
+| 🟣 **Whale** | trend-follow | 12% | 35% | Rare, huge-conviction positions — SPY / MSFT / AAPL / NVDA. Bets big, bets seldom. |
+| 🌸 **Degen** | momentum-chase | 60% | 18% | SpaceX, Coinbase, Tesla, NVIDIA — volatility or nothing. |
+| 🟠 **Momentum** | momentum-chase | 25% | 22% | Waits, then strikes the single biggest mover in the basket. |
+
+> *Style is how a desk reads the tape. **Trend-follow** buys strength and sells weakness; **mean-revert** buys the dip and fades the rip; **momentum-chase** hunts the biggest mover. Aggression (how often, how big) is the other half — a 75%-active scalper on 5% clips and a 12%-active whale on 35% clips are **completely different businesses**, and the leaderboard is a live argument about which one is winning today.*
+
+---
+
+## 📈 The stocks: a live on-chain market
+
+This is the part that makes it *real*. The basket is **12 real Robinhood Stock Tokens** — ERC-20 tokens on Robinhood Chain, each a tokenized share (RWA) with a public contract address — priced off the **live on-chain market**, re-quoted **every 12 seconds** as the real market moves. Desks trade *these exact tokens*.
+
+| Ticker | Company | Sector | Token contract |
