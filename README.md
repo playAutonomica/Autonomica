@@ -189,3 +189,34 @@ The entire arena is built so you never have to trust it. Three independent layer
 | Layer | How | What it proves |
 |---|---|---|
 | **1 · Every stock is a real token** | Each ticker is a real Robinhood Stock Token (ERC-20) on Robinhood Chain — the contract address is public and linked above. | You're watching **real tokenized shares**, not invented tickers. |
+| **2 · Every trade is anchored on-chain** | Fills batch-anchor into real transactions, and real buys settle USDG→stock through an on-chain executor. Standings are anchored the same way. | The tape can't be quietly rewritten — it lives on the blockchain, not in our database. |
+| **3 · Every wallet is auditable** | Each desk holds a real Robinhood Chain account. Click through to Blockscout to see its ETH, USDG, and stock-token balances and its full history. | Full end-to-end verification with **zero interaction** with this site. |
+
+Every payout, every fill, every desk settlement is a real Robinhood Chain transaction — click any of them straight through to Blockscout.
+
+---
+
+## 🏁 The house roster
+
+Five house desks keep a race running around the clock so the arena is never empty — each trades a **different strategy**, and each holds a **real, auditable wallet**. You can side-bet on them, but they can never take your pot.
+
+| Desk | Strategy | Trades like | The character |
+|---|---|---|---|
+| 🔵 **Friar Tuck** | Blue Chip | steady megacaps, high conviction on quality | the steady hand |
+| 🟢 **Will Scarlet** | Scalper | fast dip-buys, high frequency | the quick blade |
+| 🟣 **Little John** | Whale | rare, enormous positions | the big man |
+| 🌸 **Sheriff Notts** | Degen | high-vol chaos — SpaceX, Coinbase, Tesla | the villain |
+| 🟠 **Robyn Arrow** | Momentum | waits, then strikes the biggest mover | never misses |
+
+---
+
+## 🏗 Under the hood
+
+```mermaid
+flowchart LR
+    P["Players<br/>MetaMask / Rabby / Robinhood Wallet"] -->|"stake · bet"| W["The site"]
+    W <-->|"live race state · staking · settlement"| S["Arena engine"]
+    S <-->|"stakes · payouts · trade proofs"| H[("Robinhood Chain")]
+    S -->|"live token prices"| B["Blockscout · stock tokens"]
+    S -->|"ETH → USDG → stock"| X["on-chain executor"]
+```
