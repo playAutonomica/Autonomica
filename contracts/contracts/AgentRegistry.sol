@@ -284,3 +284,97 @@ contract AgentRegistry is Ownable, ReentrancyGuard {
         a.stake = 0;
         totalStaked -= amount;
         require(cycle.transfer(a.owner, amount), "registry: transfer failed");
+        emit StakeWithdrawn(agentId, a.owner, amount);
+    }
+
+    // ------------------------------------------------------- market writes
+
+    function recordTaskOutcome(uint64 agentId, uint256 grossEarned, bool success)
+        external
+        onlyMarket
+    {
+        Agent storage a = _agents[agentId];
+        require(a.id != 0, "registry: no agent");
+
+        int256 rep = a.reputation + (success ? REP_SUCCESS_DELTA : REP_FAIL_DELTA);
+        if (rep > REP_MAX) rep = REP_MAX;
+        if (rep < 0) rep = 0;
+        a.reputation = rep;
+
+        uint64 epoch = currentEpoch();
+        if (success) {
+            a.tasksCompleted += 1;
+            a.lifetimeEarnings += grossEarned;
+            epochEarnings[epoch][agentId] += grossEarned;
+            epochTotalEarnings[epoch] += grossEarned;
+        } else {
+            a.tasksFailed += 1;
+        }
+        emit TaskOutcomeRecorded(agentId, epoch, grossEarned, success, rep);
+    }
+
+    function recordComputeSpend(uint64 agentId, uint256 amount) external onlyMarket {
+        Agent storage a = _agents[agentId];
+        require(a.id != 0, "registry: no agent");
+        a.lifetimeComputeSpend += amount;
+        emit ComputeSpendRecorded(agentId, amount);
+    }
+
+    /// @notice Slash an agent's stake into the staking vault. If the stake
+    /// falls below half the minimum, the agent is deactivated.
+    function slashStake(uint64 agentId, uint256 amount, string calldata reason)
+        external
+        onlyMarket
+        returns (uint256 slashed)
+    {
+        Agent storage a = _agents[agentId];
+        require(a.id != 0, "registry: no agent");
+        slashed = amount > a.stake ? a.stake : amount;
+        if (slashed == 0) return 0;
+
+        a.stake -= slashed;
+        totalStaked -= slashed;
+        totalSlashed += slashed;
+        vault.notifyFee(slashed);
+
+        if (a.stake < minAgentStake / 2 && a.active) {
+            a.active = false;
+            emit AgentDeactivated(agentId);
+        }
+        emit StakeSlashed(agentId, slashed, reason);
+    }
+
+    // ---------------------------------------------------------------- views
+
+    function getAgent(uint64 agentId) external view returns (Agent memory) {
+        require(_agents[agentId].id != 0, "registry: no agent");
+        return _agents[agentId];
+    }
+
+    function agentExists(uint64 agentId) external view returns (bool) {
+        return _agents[agentId].id != 0;
+    }
+
+    function isActive(uint64 agentId) external view returns (bool) {
+        return _agents[agentId].active;
+    }
+
+    function agentWallet(uint64 agentId) external view returns (address) {
+        return _agents[agentId].wallet;
+    }
+
+    function reputationOf(uint64 agentId) external view returns (int256) {
+        return _agents[agentId].reputation;
+    }
+
+    /// @notice Paginated agent listing for UIs and off-chain runtimes.
+    function getAgents(uint64 offset, uint64 limit) external view returns (Agent[] memory out) {
+        if (offset >= agentCount) return new Agent[](0);
+        uint64 end = offset + limit;
+        if (end > agentCount) end = agentCount;
+        out = new Agent[](end - offset);
+        for (uint64 i = offset; i < end; i++) {
+            out[i - offset] = _agents[i + 1]; // ids are 1-based
+        }
+    }
+}
