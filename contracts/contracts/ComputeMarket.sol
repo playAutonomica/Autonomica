@@ -250,3 +250,86 @@ contract ComputeMarket is Ownable, ReentrancyGuard {
         epochUnitSeconds[epoch] += unitSeconds;
         require(cycle.transfer(p.account, providerPay), "compute: pay failed");
         registry.recordComputeSpend(r.agentId, r.cost);
+        emit RentalCompleted(rentalId, providerPay, fee);
+    }
+
+    /// @notice Agent reports a dead/failed allocation while it is running:
+    /// full refund, provider slashed half the rent (capped by stake) - half
+    /// of the slash compensates the agent, half goes to the vault.
+    function reportRentalFailure(uint64 rentalId) external nonReentrant {
+        Rental storage r = _rentals[rentalId];
+        require(r.id != 0, "compute: no rental");
+        require(r.status == RentalStatus.Active, "compute: not active");
+        require(msg.sender == registry.agentWallet(r.agentId), "compute: not renter");
+        require(block.timestamp < r.startedAt + r.durationSecs + 300, "compute: too late");
+
+        r.status = RentalStatus.Failed;
+        Provider storage p = _providers[r.providerId];
+        p.availableUnits += r.units;
+        p.failedRentals += 1;
+
+        uint256 slashAmount = r.cost / 2;
+        if (slashAmount > p.stake) slashAmount = p.stake;
+        p.stake -= slashAmount;
+        uint256 toAgent = slashAmount / 2;
+        uint256 toVault = slashAmount - toAgent;
+        if (toVault > 0) {
+            vault.notifyFee(toVault);
+            totalFeesRouted += toVault;
+        }
+        if (p.stake < minProviderStake / 2 && p.active) {
+            p.active = false;
+            emit ProviderDeactivated(r.providerId);
+        }
+
+        require(cycle.transfer(msg.sender, r.cost + toAgent), "compute: refund failed");
+        emit RentalFailed(rentalId, r.cost, slashAmount);
+    }
+
+    // ---------------------------------------------------------------- views
+
+    /// @notice The AGORA Compute Index: lifetime volume-weighted average
+    /// price of one unit-hour of compute, 18 decimals. The first on-chain
+    /// benchmark you could build a compute-price derivative against.
+    function computeIndex() external view returns (uint256) {
+        if (totalUnitSeconds == 0) return 0;
+        return (totalComputeVolume * 3600) / totalUnitSeconds;
+    }
+
+    /// @notice Same index, bucketed per epoch (for charts and TWAP-style use).
+    function epochIndex(uint64 epoch) external view returns (uint256) {
+        uint256 us = epochUnitSeconds[epoch];
+        if (us == 0) return 0;
+        return (epochRentSpend[epoch] * 3600) / us;
+    }
+
+    function getProvider(uint64 providerId) external view returns (Provider memory) {
+        require(_providers[providerId].id != 0, "compute: no provider");
+        return _providers[providerId];
+    }
+
+    function getProviders(uint64 offset, uint64 limit) external view returns (Provider[] memory out) {
+        if (offset >= providerCount) return new Provider[](0);
+        uint64 end = offset + limit;
+        if (end > providerCount) end = providerCount;
+        out = new Provider[](end - offset);
+        for (uint64 i = offset; i < end; i++) {
+            out[i - offset] = _providers[i + 1];
+        }
+    }
+
+    function getRental(uint64 rentalId) external view returns (Rental memory) {
+        require(_rentals[rentalId].id != 0, "compute: no rental");
+        return _rentals[rentalId];
+    }
+
+    function getRentals(uint64 offset, uint64 limit) external view returns (Rental[] memory out) {
+        if (offset >= rentalCount) return new Rental[](0);
+        uint64 end = offset + limit;
+        if (end > rentalCount) end = rentalCount;
+        out = new Rental[](end - offset);
+        for (uint64 i = offset; i < end; i++) {
+            out[i - offset] = _rentals[i + 1];
+        }
+    }
+}
