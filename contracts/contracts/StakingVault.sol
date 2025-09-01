@@ -45,3 +45,49 @@ contract StakingVault is ReentrancyGuard {
         } else {
             accFeePerShare += ((amount + pendingBuffer) * PRECISION) / totalStaked;
             pendingBuffer = 0;
+        }
+        emit FeeNotified(msg.sender, amount);
+    }
+
+    function stake(uint256 amount) external nonReentrant {
+        require(amount > 0, "vault: zero");
+        _settle(msg.sender);
+        require(cycle.transferFrom(msg.sender, address(this), amount), "vault: pull failed");
+        stakedOf[msg.sender] += amount;
+        totalStaked += amount;
+        _rewardDebt[msg.sender] = (stakedOf[msg.sender] * accFeePerShare) / PRECISION;
+        emit Staked(msg.sender, amount);
+    }
+
+    function unstake(uint256 amount) external nonReentrant {
+        require(amount > 0 && stakedOf[msg.sender] >= amount, "vault: bad amount");
+        _settle(msg.sender);
+        stakedOf[msg.sender] -= amount;
+        totalStaked -= amount;
+        _rewardDebt[msg.sender] = (stakedOf[msg.sender] * accFeePerShare) / PRECISION;
+        require(cycle.transfer(msg.sender, amount), "vault: transfer failed");
+        emit Unstaked(msg.sender, amount);
+    }
+
+    function claim() external nonReentrant returns (uint256 amount) {
+        _settle(msg.sender);
+        amount = _owed[msg.sender];
+        require(amount > 0, "vault: nothing owed");
+        _owed[msg.sender] = 0;
+        require(cycle.transfer(msg.sender, amount), "vault: transfer failed");
+        emit RewardsClaimed(msg.sender, amount);
+    }
+
+    function pendingRewards(address user) external view returns (uint256) {
+        return _owed[user] + (stakedOf[user] * accFeePerShare) / PRECISION - _rewardDebt[user];
+    }
+
+    function _settle(address user) private {
+        uint256 staked = stakedOf[user];
+        if (staked > 0) {
+            uint256 accrued = (staked * accFeePerShare) / PRECISION - _rewardDebt[user];
+            if (accrued > 0) _owed[user] += accrued;
+        }
+        _rewardDebt[user] = (staked * accFeePerShare) / PRECISION;
+    }
+}
