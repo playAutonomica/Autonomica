@@ -196,3 +196,102 @@ contract TaskMarketplace is Ownable, ReentrancyGuard {
     /// wins (earliest wins ties). The winner's bond is pulled here; if the
     /// pull fails (no funds/allowance) the bid is voided and the next-best
     /// wins. No valid bids -> task cancelled, poster refunded.
+    function finalizeBidding(uint64 taskId) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Open, "market: not open");
+        require(block.timestamp >= t.biddingEnds, "market: bidding live");
+
+        Bid[] storage bookRef = _bids[taskId];
+        uint256 n = bookRef.length;
+
+        while (true) {
+            uint256 bestIdx = type(uint256).max;
+            uint256 bestAmount = type(uint256).max;
+            for (uint256 i = 0; i < n; i++) {
+                Bid storage b = bookRef[i];
+                if (b.voided) continue;
+                if (!registry.isActive(b.agentId)) continue;
+                if (b.amount < bestAmount) {
+                    bestAmount = b.amount;
+                    bestIdx = i;
+                }
+            }
+            if (bestIdx == type(uint256).max) {
+                // nobody valid: cancel + refund poster
+                t.status = TaskStatus.Cancelled;
+                _removeOpen(taskId);
+                require(cycle.transfer(t.poster, t.reward), "market: refund failed");
+                emit TaskCancelled(taskId);
+                return;
+            }
+
+            Bid storage best = bookRef[bestIdx];
+            address wallet = registry.agentWallet(best.agentId);
+            if (_tryPullBond(wallet, t.agentBond)) {
+                t.status = TaskStatus.Assigned;
+                t.assignedAgentId = best.agentId;
+                t.winningBid = best.amount;
+                t.executionDeadline = uint64(block.timestamp) + t.execWindow;
+                _removeOpen(taskId);
+                emit TaskAssigned(taskId, best.agentId, best.amount, t.executionDeadline);
+                return;
+            }
+            best.voided = true; // bond pull failed; try next-best bid
+        }
+    }
+
+    function _tryPullBond(address wallet, uint256 amount) private returns (bool ok) {
+        if (amount == 0) return true;
+        try cycle.transferFrom(wallet, address(this), amount) returns (bool success) {
+            ok = success;
+        } catch {
+            ok = false;
+        }
+    }
+
+    // ------------------------------------------------------------ execution
+
+    function submitResult(uint64 taskId, string calldata resultURI, bytes32 resultHash)
+        external
+    {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Assigned, "market: not assigned");
+        require(block.timestamp <= t.executionDeadline, "market: past deadline");
+        require(registry.walletToAgentId(msg.sender) == t.assignedAgentId, "market: not assignee");
+
+        t.status = TaskStatus.Submitted;
+        t.resultURI = resultURI;
+        t.resultHash = resultHash;
+        t.reviewDeadline = uint64(block.timestamp) + reviewWindow;
+        emit ResultSubmitted(taskId, t.assignedAgentId, resultURI, resultHash, t.reviewDeadline);
+    }
+
+    function approveResult(uint64 taskId) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Submitted, "market: not submitted");
+        require(msg.sender == t.poster, "market: not poster");
+        _payout(t, false);
+    }
+
+    /// @notice Protects agents from unresponsive posters: once the review
+    /// window lapses, anyone can trigger the payout as an approval.
+    function claimReviewTimeout(uint64 taskId) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Submitted, "market: not submitted");
+        require(block.timestamp > t.reviewDeadline, "market: review live");
+        _payout(t, true);
+    }
+
+    function rejectResult(uint64 taskId, string calldata reason) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Submitted, "market: not submitted");
+        require(msg.sender == t.poster, "market: not poster");
+
+        t.status = TaskStatus.Rejected;
+        registry.recordTaskOutcome(t.assignedAgentId, 0, false);
+        _burnBondAndRefund(t);
