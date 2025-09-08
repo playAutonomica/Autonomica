@@ -295,3 +295,101 @@ contract TaskMarketplace is Ownable, ReentrancyGuard {
         t.status = TaskStatus.Rejected;
         registry.recordTaskOutcome(t.assignedAgentId, 0, false);
         _burnBondAndRefund(t);
+        emit TaskRejected(taskId, t.assignedAgentId, reason);
+    }
+
+    /// @notice Agent blew the execution deadline: anyone can expire the task.
+    function expireTask(uint64 taskId) external nonReentrant {
+        Task storage t = _tasks[taskId];
+        require(t.id != 0, "market: no task");
+        require(t.status == TaskStatus.Assigned, "market: not assigned");
+        require(block.timestamp > t.executionDeadline, "market: deadline live");
+
+        t.status = TaskStatus.Expired;
+        registry.recordTaskOutcome(t.assignedAgentId, 0, false);
+        _burnBondAndRefund(t);
+        emit TaskExpired(taskId, t.assignedAgentId);
+    }
+
+    /// @dev winning bid splits: fee -> vault, dividend -> shareholders (falls
+    /// back to the agent if the shares contract declines), rest -> agent
+    /// wallet. Bond returns to the agent, unspent reward returns to poster.
+    function _payout(Task storage t, bool viaTimeout) private {
+        t.status = TaskStatus.Completed;
+
+        uint256 fee = (t.winningBid * feeBps) / 10_000;
+        uint256 dividend = (t.winningBid * dividendBps) / 10_000;
+        uint256 agentAmount = t.winningBid - fee - dividend;
+
+        if (fee > 0) {
+            vault.notifyFee(fee);
+            totalFeesRouted += fee;
+        }
+        if (dividend > 0) {
+            bool accepted = shares.depositDividend(t.assignedAgentId, dividend);
+            if (!accepted) agentAmount += dividend;
+        }
+
+        address wallet = registry.agentWallet(t.assignedAgentId);
+        require(cycle.transfer(wallet, agentAmount + t.agentBond), "market: agent pay failed");
+        uint256 refund = t.reward - t.winningBid;
+        if (refund > 0) {
+            require(cycle.transfer(t.poster, refund), "market: refund failed");
+        }
+
+        totalVolume += t.winningBid;
+        registry.recordTaskOutcome(t.assignedAgentId, t.winningBid, true);
+        emit TaskCompleted(t.id, t.assignedAgentId, agentAmount, fee, dividend, viaTimeout);
+    }
+
+    /// @dev failure path: reward returns to poster; bond splits half to the
+    /// poster (compensation for wasted time) and half to the vault.
+    function _burnBondAndRefund(Task storage t) private {
+        uint256 half = t.agentBond / 2;
+        uint256 rest = t.agentBond - half;
+        if (rest > 0) {
+            vault.notifyFee(rest);
+            totalFeesRouted += rest;
+        }
+        require(cycle.transfer(t.poster, t.reward + half), "market: refund failed");
+    }
+
+    // ---------------------------------------------------------------- views
+
+    function getTask(uint64 taskId) external view returns (Task memory) {
+        require(_tasks[taskId].id != 0, "market: no task");
+        return _tasks[taskId];
+    }
+
+    function getBids(uint64 taskId) external view returns (Bid[] memory) {
+        return _bids[taskId];
+    }
+
+    function getOpenTaskIds() external view returns (uint64[] memory) {
+        return _openTaskIds;
+    }
+
+    function getTasks(uint64 offset, uint64 limit) external view returns (Task[] memory out) {
+        if (offset >= taskCount) return new Task[](0);
+        uint64 end = offset + limit;
+        if (end > taskCount) end = taskCount;
+        out = new Task[](end - offset);
+        for (uint64 i = offset; i < end; i++) {
+            out[i - offset] = _tasks[i + 1];
+        }
+    }
+
+    function _removeOpen(uint64 taskId) private {
+        uint256 idxPlus = _openIndex[taskId];
+        if (idxPlus == 0) return;
+        uint256 idx = idxPlus - 1;
+        uint256 last = _openTaskIds.length - 1;
+        if (idx != last) {
+            uint64 moved = _openTaskIds[last];
+            _openTaskIds[idx] = moved;
+            _openIndex[moved] = idx + 1;
+        }
+        _openTaskIds.pop();
+        _openIndex[taskId] = 0;
+    }
+}
