@@ -14,3 +14,8 @@ async function main() {
   if (!key) throw new Error("AGENT_SECRET_1 is required");
   const provider = new JsonRpcProvider(RPC);
   if ((await provider.getNetwork()).chainId !== 4663n) throw new Error("wrong chain");
+  const wallet = new Wallet(key, provider);
+  const factory = new ContractFactory(artifact.abi, artifact.bytecode, wallet);
+  const deployTx = await factory.getDeployTransaction();
+  const [gas, fees, balance] = await Promise.all([
+    provider.estimateGas({ ...deployTx, from: wallet.address }),
