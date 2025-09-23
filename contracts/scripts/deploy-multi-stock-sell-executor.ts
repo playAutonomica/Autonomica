@@ -19,3 +19,8 @@ async function main() {
   const deployTx = await factory.getDeployTransaction();
   const [gas, fees, balance] = await Promise.all([
     provider.estimateGas({ ...deployTx, from: wallet.address }),
+    provider.getFeeData(), provider.getBalance(wallet.address),
+  ]);
+  const gasPrice = fees.maxFeePerGas ?? fees.gasPrice;
+  if (!gasPrice) throw new Error("RPC returned no gas price");
+  const projected = ((gas * 12n) / 10n) * gasPrice;
