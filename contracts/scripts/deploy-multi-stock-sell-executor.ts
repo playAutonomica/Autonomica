@@ -29,3 +29,7 @@ async function main() {
   console.log(JSON.stringify({ mode: live ? "LIVE" : "DRY_RUN", deployer: wallet.address, estimatedGas: gas.toString(), projectedGasEth: formatEther(projected) }, null, 2));
   if (!live) return;
   const executor = await factory.deploy();
+  const receipt = await executor.deploymentTransaction()!.wait(1);
+  if (!receipt || receipt.status !== 1) throw new Error("deployment reverted");
+  console.log(JSON.stringify({ result: "DEPLOYED", executor: await executor.getAddress(), tx: receipt.hash, gasUsed: receipt.gasUsed.toString() }, null, 2));
+}
