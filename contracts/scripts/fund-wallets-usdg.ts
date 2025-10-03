@@ -34,3 +34,38 @@ function calldata(wallet: string, amountIn: bigint, minOut: bigint): string {
   }]);
   const settle = coder.encode(["address", "uint256", "bool"], [ETH, amountIn, true]);
   const take = coder.encode(["address", "address", "uint256"], [USDG, wallet, 0]);
+  const input = coder.encode(["bytes", "bytes[]"], ["0x070b0e", [swap, settle, take]]);
+  return router.encodeFunctionData("execute", ["0x10", [input], Math.floor(Date.now() / 1000) + 300]);
+}
+
+async function main() {
+  const live = process.argv.includes("--live");
+  const provider = new JsonRpcProvider(RPC);
+  const chainId = (await provider.getNetwork()).chainId;
+  if (chainId !== 4663n && chainId !== 31337n) throw new Error(`refusing chain ${chainId}`);
+  const wallets = Array.from({ length: 5 }, (_, i) => {
+    const key = process.env[`AGENT_SECRET_${i + 1}`];
+    if (!key) throw new Error(`AGENT_SECRET_${i + 1} is required`);
+    return new Wallet(key, provider);
+  });
+  const token = new Contract(USDG, ERC20_ABI, provider);
+  const quoter = new Contract(QUOTER, QUOTER_ABI, provider);
+  const sampleIn = parseEther("0.001");
+  const sampleOut = await quote(quoter, sampleIn);
+  const plans: Array<{ wallet: Wallet; before: bigint; deficit: bigint; ethIn: bigint; quoted: bigint; data: string; gas: bigint }> = [];
+
+  for (const wallet of wallets) {
+    const [before, ethBalance] = await Promise.all([token.balanceOf(wallet.address), provider.getBalance(wallet.address)]);
+    if (before >= TARGET) continue;
+    const deficit = TARGET - before;
+    const desiredQuote = (deficit * 10_075n) / 10_000n; // 0.75% execution buffer
+    let ethIn = (sampleIn * desiredQuote + sampleOut - 1n) / sampleOut;
+    let quoted = await quote(quoter, ethIn);
+    for (let i = 0; i < 3 && quoted < desiredQuote; i++) {
+      ethIn = (ethIn * desiredQuote + quoted - 1n) / quoted;
+      quoted = await quote(quoter, ethIn);
+    }
+    if (quoted < desiredQuote) throw new Error(`unable to quote target for ${wallet.address}`);
+    const data = calldata(wallet.address, ethIn, deficit);
+    const gas = await provider.estimateGas({ from: wallet.address, to: ROUTER, data, value: ethIn });
+    const fees = await provider.getFeeData();
