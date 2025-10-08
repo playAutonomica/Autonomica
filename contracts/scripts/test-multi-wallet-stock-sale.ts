@@ -36,3 +36,39 @@ async function main() {
     const key = process.env[`AGENT_SECRET_${i + 1}`];
     if (!key) throw new Error(`AGENT_SECRET_${i + 1} is required`);
     const wallet = new Wallet(key, provider);
+    const [symbol, token] = TESTS[i];
+    const stock = new Contract(token, ERC20_ABI, wallet);
+    const stockIn = await stock.balanceOf(wallet.address);
+    if (stockIn === 0n) throw new Error(`${wallet.address} has no ${symbol} to test`);
+    const tokenFirst = BigInt(token) < BigInt(USDG);
+    const [quote] = await quoter.quoteExactInputSingle.staticCall({
+      poolKey: { currency0: tokenFirst ? token : USDG, currency1: tokenFirst ? USDG : token, fee: 3000, tickSpacing: 60, hooks: ZERO },
+      zeroForOne: tokenFirst, exactAmount: stockIn, hookData: "0x",
+    });
+    plans.push({ wallet, symbol, token, stockIn, quote });
+  }
+  console.log(JSON.stringify({ mode: live ? "LIVE" : "DRY_RUN", executor: EXECUTOR, plans: plans.map((p) => ({ wallet: p.wallet.address, symbol: p.symbol, stockIn: formatUnits(p.stockIn, 18), quotedUsdg: formatUnits(p.quote, 6) })) }, null, 2));
+  if (!live) return;
+
+  const results: object[] = [];
+  for (const plan of plans) {
+    const stock = new Contract(plan.token, ERC20_ABI, plan.wallet);
+    const usdg = new Contract(USDG, ERC20_ABI, plan.wallet);
+    const executor = new Contract(EXECUTOR, EXECUTOR_ABI, plan.wallet);
+    const before = await usdg.balanceOf(plan.wallet.address);
+    const approval = await stock.approve(EXECUTOR, plan.stockIn);
+    const approvalReceipt = await approval.wait(1);
+    if (!approvalReceipt || approvalReceipt.status !== 1) throw new Error(`approval failed for ${plan.symbol}`);
+    const sale = await executor.sellStock(plan.token, plan.stockIn, (plan.quote * 99n) / 100n, Math.floor(Date.now() / 1000) + 180);
+    const receipt = await sale.wait(1);
+    if (!receipt || receipt.status !== 1) throw new Error(`sale failed for ${plan.symbol}`);
+    const received = (await usdg.balanceOf(plan.wallet.address)) - before;
+    results.push({ wallet: plan.wallet.address, symbol: plan.symbol, usdgReceived: formatUnits(received, 6), approvalTx: approval.hash, saleTx: sale.hash });
+  }
+  console.log(JSON.stringify({ result: "ALL_FIVE_SALES_CONFIRMED", sales: results }, null, 2));
+}
+
+main().catch((error) => {
+  console.error("ERR:", error?.shortMessage ?? error?.message ?? error);
+  process.exit(1);
+});
