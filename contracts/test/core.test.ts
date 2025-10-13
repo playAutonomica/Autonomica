@@ -174,3 +174,60 @@ describe("AgentRegistry", () => {
     expect(page.length).to.equal(2);
     expect(page[0].name).to.equal("B");
     expect((await f.registry.getAgents(5, 10)).length).to.equal(0);
+  });
+});
+
+describe("CycleFaucet", () => {
+  it("hands out one claim per address until dry", async () => {
+    const f = await loadFixture(deployProtocol);
+    const faucet = await (await ethers.getContractFactory("CycleFaucet")).deploy(f.cycle);
+    await f.cycle.mint(await faucet.getAddress(), E(6000));
+
+    const before = await f.cycle.balanceOf(f.poster.address);
+    await faucet.connect(f.poster).claim();
+    expect(await f.cycle.balanceOf(f.poster.address)).to.equal(before + E(5000));
+    await expect(faucet.connect(f.poster).claim()).to.be.revertedWith("faucet: already claimed");
+    // second claimer: only 1000 left in the tank (OZ v5 reverts inside transfer)
+    await expect(faucet.connect(f.staker).claim()).to.be.revertedWithCustomError(
+      f.cycle, "ERC20InsufficientBalance"
+    );
+    await expect(faucet.connect(f.poster).setClaimAmount(1n)).to.be.revertedWithCustomError(
+      faucet, "OwnableUnauthorizedAccount"
+    );
+  });
+});
+
+describe("StakingVault", () => {
+  it("buffers fees with no stakers, then distributes pro-rata", async () => {
+    const f = await loadFixture(deployProtocol);
+    // fee arrives before anyone stakes -> buffered
+    await f.vault.connect(f.poster).notifyFee(E(100));
+    expect(await f.vault.pendingBuffer()).to.equal(E(100));
+
+    await f.vault.connect(f.staker).stake(E(300));
+    await f.vault.connect(f.speculator1).stake(E(100));
+
+    // next fee folds the buffer in: 100 buffered + 40 new = 140 across 400 staked
+    await f.vault.connect(f.poster).notifyFee(E(40));
+    expect(await f.vault.pendingBuffer()).to.equal(0n);
+    expect(await f.vault.pendingRewards(f.staker.address)).to.equal(E(105));      // 3/4
+    expect(await f.vault.pendingRewards(f.speculator1.address)).to.equal(E(35));  // 1/4
+
+    const before = await f.cycle.balanceOf(f.staker.address);
+    await f.vault.connect(f.staker).claim();
+    expect(await f.cycle.balanceOf(f.staker.address)).to.equal(before + E(105));
+    expect(await f.vault.pendingRewards(f.staker.address)).to.equal(0n);
+  });
+
+  it("keeps earned rewards through unstaking and rejects empty claims", async () => {
+    const f = await loadFixture(deployProtocol);
+    await f.vault.connect(f.staker).stake(E(100));
+    await f.vault.connect(f.poster).notifyFee(E(10));
+    await f.vault.connect(f.staker).unstake(E(100));
+    expect(await f.vault.stakedOf(f.staker.address)).to.equal(0n);
+    expect(await f.vault.pendingRewards(f.staker.address)).to.equal(E(10));
+    await f.vault.connect(f.staker).claim();
+    await expect(f.vault.connect(f.staker).claim()).to.be.revertedWith("vault: nothing owed");
+    await expect(f.vault.connect(f.staker).unstake(E(1))).to.be.revertedWith("vault: bad amount");
+  });
+});
