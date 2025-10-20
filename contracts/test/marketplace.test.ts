@@ -156,3 +156,82 @@ describe("TaskMarketplace", () => {
     expect((await f.vault.totalFeesReceived()) - vaultBefore).to.equal(E(5));
     const a = await f.registry.getAgent(1);
     expect(a.reputation).to.equal(50n); // 100 - 50
+    expect(a.tasksFailed).to.equal(1n);
+    expect((await f.tasks.getTask(id)).status).to.equal(4n); // Rejected
+  });
+
+  it("expires blown deadlines with the same bond burn", async () => {
+    const f = await loadFixture(deployProtocol);
+    const id = await postStandardTask(f);
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet1);
+    await f.tasks.connect(f.agentWallet1).bid(id, E(60));
+    await time.increase(BID_WINDOW + 1);
+    await f.tasks.finalizeBidding(id);
+
+    await expect(f.tasks.expireTask(id)).to.be.revertedWith("market: deadline live");
+    await time.increase(EXEC_WINDOW + 1);
+    await expect(
+      f.tasks.connect(f.agentWallet1).submitResult(id, "ipfs://late", ethers.id("late"))
+    ).to.be.revertedWith("market: past deadline");
+
+    const posterBefore = await f.cycle.balanceOf(f.poster.address);
+    await f.tasks.expireTask(id); // anyone may call
+    expect(await f.cycle.balanceOf(f.poster.address)).to.equal(posterBefore + E(105));
+    expect((await f.tasks.getTask(id)).status).to.equal(5n); // Expired
+  });
+
+  it("auto-approves via timeout when the poster goes silent", async () => {
+    const f = await loadFixture(deployProtocol);
+    const id = await postStandardTask(f);
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet1);
+    await f.tasks.connect(f.agentWallet1).bid(id, E(60));
+    await time.increase(BID_WINDOW + 1);
+    await f.tasks.finalizeBidding(id);
+    await f.tasks.connect(f.agentWallet1).submitResult(id, "ipfs://done", ethers.id("done"));
+
+    await expect(f.tasks.claimReviewTimeout(id)).to.be.revertedWith("market: review live");
+    await time.increase(121);
+    const agentBefore = await f.cycle.balanceOf(f.agentWallet1.address);
+    await f.tasks.connect(f.speculator1).claimReviewTimeout(id); // anyone
+    expect(await f.cycle.balanceOf(f.agentWallet1.address)).to.equal(agentBefore + E(61)); // 51 + bond 10
+    expect((await f.tasks.getTask(id)).status).to.equal(3n); // Completed
+  });
+});
+
+describe("ComputeMarket", () => {
+  async function setupProvider(f: any) {
+    await f.compute.connect(f.providerAcct).registerProvider("RigOne", "us-east", "H100", 8, E(2)); // 2 CYCLE per unit-hour
+    return 1n;
+  }
+
+  it("registers providers with stake and lists capacity", async () => {
+    const f = await loadFixture(deployProtocol);
+    const before = await f.cycle.balanceOf(f.providerAcct.address);
+    await setupProvider(f);
+    expect(await f.cycle.balanceOf(f.providerAcct.address)).to.equal(before - MIN_PROVIDER_STAKE);
+    const p = await f.compute.getProvider(1);
+    expect(p.availableUnits).to.equal(8);
+    await expect(
+      f.compute.connect(f.providerAcct).registerProvider("Again", "", "A100", 4, E(1))
+    ).to.be.revertedWith("compute: already provider");
+  });
+
+  it("rents a slice: escrow, capacity, confirm, complete, fee split, spend ledger", async () => {
+    const f = await loadFixture(deployProtocol);
+    await setupProvider(f);
+    await registerAgent(f.registry, f.agentOwner, f.agentWallet1);
+
+    await expect(f.compute.connect(f.poster).rent(1, 4, 1800)).to.be.revertedWith("compute: not an agent");
+    // 4 units * 1800s at 2/unit-hour = 4 CYCLE
+    await f.compute.connect(f.agentWallet1).rent(1, 4, 1800);
+    let p = await f.compute.getProvider(1);
+    expect(p.availableUnits).to.equal(4);
+    const r = await f.compute.getRental(1);
+    expect(r.cost).to.equal(E(4));
+
+    await expect(f.compute.connect(f.poster).confirmRental(1)).to.be.revertedWith("compute: not provider");
+    await f.compute.connect(f.providerAcct).confirmRental(1);
+
+    const provBefore = await f.cycle.balanceOf(f.providerAcct.address);
+    const vaultBefore = await f.vault.totalFeesReceived();
+    await f.compute.connect(f.agentWallet1).completeRental(1); // renter settles early
