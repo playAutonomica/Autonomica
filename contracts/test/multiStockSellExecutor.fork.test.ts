@@ -29,3 +29,32 @@ describe("MultiStockSellExecutor (Robinhood Chain fork)", function () {
     const quoter = new ethers.Contract(QUOTER, QUOTER_ABI, buyer);
     const Buy = await ethers.getContractFactory("MultiStockTradeExecutor", buyer);
     const Sell = await ethers.getContractFactory("MultiStockSellExecutor", buyer);
+    const buyExecutor = await Buy.deploy();
+    const sellExecutor = await Sell.deploy();
+    const amountIn = ethers.parseUnits("0.05", 6);
+    await (await usdg.approve(await buyExecutor.getAddress(), amountIn * 7n)).wait();
+
+    for (const [symbol, token] of STOCKS) {
+      const usdgFirst = BigInt(USDG) < BigInt(token);
+      const keyFor = (input: string, output: string) => ({
+        currency0: BigInt(input) < BigInt(output) ? input : output,
+        currency1: BigInt(input) < BigInt(output) ? output : input,
+        fee: 3000, tickSpacing: 60, hooks: ethers.ZeroAddress,
+      });
+      const [buyQuote] = await quoter.quoteExactInputSingle.staticCall({ poolKey: keyFor(USDG, token), zeroForOne: usdgFirst, exactAmount: amountIn, hookData: "0x" });
+      const stock = new ethers.Contract(token, ERC20_ABI, buyer);
+      const beforeStock = await stock.balanceOf(buyer.address);
+      await (await buyExecutor.buyStock(token, amountIn, (buyQuote * 99n) / 100n, Math.floor(Date.now() / 1000) + 300)).wait();
+      const stockIn = (await stock.balanceOf(buyer.address)) - beforeStock;
+      await (await stock.approve(await sellExecutor.getAddress(), stockIn)).wait();
+      const [sellQuote] = await quoter.quoteExactInputSingle.staticCall({ poolKey: keyFor(token, USDG), zeroForOne: !usdgFirst, exactAmount: stockIn, hookData: "0x" });
+      const beforeUsdg = await usdg.balanceOf(buyer.address);
+      const tx = await sellExecutor.sellStock(token, stockIn, (sellQuote * 99n) / 100n, Math.floor(Date.now() / 1000) + 300);
+      const receipt = await tx.wait();
+      const received = (await usdg.balanceOf(buyer.address)) - beforeUsdg;
+      expect(received).to.be.gte((sellQuote * 99n) / 100n);
+      await expect(tx).to.emit(sellExecutor, "StockSold").withArgs(buyer.address, symbol, token, stockIn, received);
+      expect(receipt!.status).to.equal(1);
+    }
+  });
+});
