@@ -65,4 +65,37 @@ contract ProtocolFeeSplitter is ReentrancyGuard {
             locker.claim(currency);
         }
         uint256 fresh = IERC20(currency).balanceOf(address(this)) - treasuryHeld[currency];
-        if (fresh == 0) return 0;
+        if (fresh == 0) return 0;
+        uint256 toTreasury = (fresh * treasuryBps) / BPS_DENOMINATOR;
+        treasuryHeld[currency] += toTreasury;
+        toFlywheel = fresh - toTreasury;
+        if (toFlywheel > 0) IERC20(currency).safeTransfer(flywheel, toFlywheel);
+        emit Swept(currency, toFlywheel, toTreasury);
+    }
+
+    /// @notice Convenience batch sweep.
+    function sweepMany(address[] calldata currencies) external {
+        for (uint256 i = 0; i < currencies.length; i++) {
+            sweep(currencies[i]);
+        }
+    }
+
+    /// @notice Withdraws all treasury funds held for `currency` to the treasury wallet.
+    /// Only the treasury wallet itself can trigger this — nobody else decides the timing.
+    function claimTreasury(address currency) external returns (uint256 amount) {
+        if (msg.sender != treasury) revert NotTreasury();
+        sweep(currency); // fold any pending locker fees in first
+        amount = treasuryHeld[currency];
+        if (amount == 0) return 0;
+        treasuryHeld[currency] = 0;
+        IERC20(currency).safeTransfer(treasury, amount);
+        emit TreasuryClaimed(currency, amount);
+    }
+
+    /// @notice View helper: total treasury funds for `currency` if claimed now (held here
+    /// plus this contract's still-unclaimed share sitting in the locker).
+    function treasuryClaimable(address currency) external view returns (uint256) {
+        uint256 pending = locker.claimable(address(this), currency);
+        return treasuryHeld[currency] + (pending * treasuryBps) / BPS_DENOMINATOR;
+    }
+}
