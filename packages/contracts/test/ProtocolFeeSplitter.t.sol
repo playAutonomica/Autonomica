@@ -51,4 +51,58 @@ contract ProtocolFeeSplitterTest is BaseTest {
         assertEq(toFlywheel, accrued - expectedTreasury, "flywheel cut pushed immediately");
         assertEq(IERC20(address(wnative)).balanceOf(flywheelSink), toFlywheel);
         // treasury cut is HELD, not sent
-        assertEq(IERC20(address(wnative)).balanceOf(treasury), 0, "nothing pushed to treasury");
+        assertEq(IERC20(address(wnative)).balanceOf(treasury), 0, "nothing pushed to treasury");
+        assertEq(splitter.treasuryHeld(address(wnative)), expectedTreasury);
+        assertEq(locker.claimable(address(splitter), address(wnative)), 0);
+    }
+
+    function test_onlyTreasuryCanClaim() public {
+        _tradeAndCollect();
+        splitter.sweep(address(wnative));
+        vm.prank(trader);
+        vm.expectRevert(ProtocolFeeSplitter.NotTreasury.selector);
+        splitter.claimTreasury(address(wnative));
+    }
+
+    function test_treasuryClaimsWhenItWants() public {
+        _tradeAndCollect();
+        splitter.sweep(address(wnative));
+        uint256 held = splitter.treasuryHeld(address(wnative));
+        assertGt(held, 0);
+
+        // more volume accrues while treasury waits — nothing is lost
+        buy(trader2, token, 2 ether, 0);
+        locker.collectFees(token);
+
+        vm.prank(treasury);
+        uint256 claimed = splitter.claimTreasury(address(wnative));
+        assertGt(claimed, held, "claim folds in fees accrued since the last sweep");
+        assertEq(IERC20(address(wnative)).balanceOf(treasury), claimed);
+        assertEq(splitter.treasuryHeld(address(wnative)), 0);
+    }
+
+    function test_overallSplitIs60_30_10() public {
+        _tradeAndCollect();
+        uint256 creatorShare = locker.claimable(creatorFees, address(wnative));
+        uint256 protocolShare = locker.claimable(address(splitter), address(wnative));
+        uint256 total = creatorShare + protocolShare;
+
+        uint256 toFlywheel = splitter.sweep(address(wnative));
+        vm.prank(treasury);
+        uint256 toTreasury = splitter.claimTreasury(address(wnative));
+
+        // creator 60% of collected fees; treasury 30%; flywheel 10% (±1 wei rounding)
+        assertApproxEqAbs(creatorShare, (total * 6000) / 10_000, 1);
+        assertApproxEqAbs(toTreasury, (total * 3000) / 10_000, 1);
+        assertApproxEqAbs(toFlywheel, (total * 1000) / 10_000, 1);
+    }
+
+    function test_sweepHandlesTokenCurrencyToo() public {
+        _tradeAndCollect();
+        uint256 accrued = locker.claimable(address(splitter), token);
+        assertGt(accrued, 0, "buys pay fees in the launched token");
+        uint256 toFlywheel = splitter.sweep(token);
+        assertEq(IERC20(token).balanceOf(flywheelSink), toFlywheel);
+        assertEq(splitter.treasuryHeld(token), accrued - toFlywheel);
+    }
+
