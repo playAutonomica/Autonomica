@@ -141,3 +141,73 @@ export class AgentRunner {
     const now = Math.floor(Date.now() / 1000);
     for (const key of [...this.myBids]) {
       const id = BigInt(key);
+      const t = await this.c.tasks.getTask(id);
+      const status = Number(t.status);
+
+      if (status === TaskStatus.Open && now >= Number(t.biddingEnds)) {
+        await this.send(() => this.c.tasks.finalizeBidding(id)); // race with everyone; loser reverts harmlessly
+        continue;
+      }
+      if (status === TaskStatus.Assigned) {
+        if (t.assignedAgentId !== this.agentId) { this.myBids.delete(key); continue; } // lost the auction
+        if (!this.inFlight.has(key)) {
+          this.inFlight.add(key);
+          // fire-and-forget: work happens concurrently with the main loop
+          this.executeTask(id, String(t.spec), Number(t.executionDeadline))
+            .catch((e) => this.log(paint.red(`task #${id} execution error: ${String(e?.message ?? e).slice(0, 100)}`)))
+            .finally(() => { this.inFlight.delete(key); this.myBids.delete(key); });
+        }
+        continue;
+      }
+      if (status === TaskStatus.Submitted) {
+        if (t.assignedAgentId === this.agentId && now > Number(t.reviewDeadline)) {
+          if (await this.send(() => this.c.tasks.claimReviewTimeout(id))) {
+            this.log(`poster went silent - claimed timeout payout on task #${id}`);
+          }
+        }
+        continue;
+      }
+      if (status >= TaskStatus.Completed) this.myBids.delete(key); // terminal either way
+    }
+  }
+
+  /** The heart of the loop: rent raw compute, crunch, commit the result. */
+  private async executeTask(taskId: bigint, spec: string, deadline: number): Promise<void> {
+    this.log(paint.bold(`won task #${taskId} - spinning up`));
+    const need = computeNeed(spec);
+    const rentalId = await this.rentCompute(need.units, need.rentSecs);
+
+    // if the slice landed on THIS MACHINE, the crunch is real worker threads
+    // saturating the rented core count; otherwise it's a simulated remote rig
+    let burnedForReal = false;
+    const host = getHostProvider();
+    if (rentalId !== null && host && host.providerId !== 0n) {
+      const rental = await this.c.compute.getRental(rentalId);
+      if (rental.providerId === host.providerId) {
+        await host.execute(need.units, need.workMs);
+        burnedForReal = true;
+      }
+    }
+    if (!burnedForReal) {
+      await sleep(need.workMs * (0.6 + Math.random() * 0.8)); // simulated remote rig
+    }
+
+    let answer = solve(spec);
+    if (Math.random() > this.persona.skill) {
+      answer = `${answer}_corrupted_${Math.floor(Math.random() * 999)}`; // cut a corner, ship garbage
+      this.log(paint.yellow(`task #${taskId}: quality slipped (skill roll failed)`));
+    }
+
+    if (rentalId !== null) {
+      await this.send(() => this.c.compute.completeRental(rentalId)); // release the slice, pay the provider
+    }
+
+    if (Math.floor(Date.now() / 1000) >= deadline) {
+      this.log(paint.red(`task #${taskId}: missed the execution deadline, bond at risk`));
+      return;
+    }
+    const uri = `data:agora/result,${answer.slice(0, 48)}`;
+    if (await this.send(() => this.c.tasks.submitResult(taskId, uri, resultHashOf(spec, answer)))) {
+      this.log(`task #${taskId}: result submitted (${answer.slice(0, 24)}${answer.length > 24 ? "..." : ""})`);
+    }
+  }
