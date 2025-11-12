@@ -64,3 +64,69 @@ export class TaskFaucet {
           this.log(`posted task #${parsed.args.taskId}: "${spec}" for ${fmt(reward)} CYCLE [${tags}]`);
         }
       } catch { /* other events */ }
+    }
+  }
+
+  /** Verify each submission by recomputing the answer. Truth, on-chain. */
+  private async reviewSubmissions(): Promise<void> {
+    const now = Math.floor(Date.now() / 1000);
+    for (const key of [...this.posted]) {
+      const id = BigInt(key);
+      const t = await this.c.tasks.getTask(id);
+      const status = Number(t.status);
+
+      if (status === TaskStatus.Open && now >= Number(t.biddingEnds)) {
+        await tryTx(() => this.c.tasks.finalizeBidding(id));
+      } else if (status === TaskStatus.Assigned && now > Number(t.executionDeadline)) {
+        if (await tryTx(() => this.c.tasks.expireTask(id))) {
+          this.log(paint.red(`task #${id} expired - agent #${t.assignedAgentId} blew the deadline, bond burned`));
+        }
+      } else if (status === TaskStatus.Submitted) {
+        await sleep(1500 + Math.random() * 3000); // a human glances at the result
+        const expected = resultHashOf(String(t.spec), solve(String(t.spec)));
+        if (t.resultHash === expected) {
+          if (await tryTx(() => this.c.tasks.approveResult(id))) {
+            this.log(paint.green(`task #${id} VERIFIED - paying agent #${t.assignedAgentId} ${fmt(t.winningBid)} CYCLE`));
+          }
+        } else {
+          if (await tryTx(() => this.c.tasks.rejectResult(id, "verification failed: hash mismatch"))) {
+            this.log(paint.red(`task #${id} REJECTED - agent #${t.assignedAgentId} shipped garbage, bond burned`));
+          }
+        }
+      } else if (status >= TaskStatus.Completed) {
+        this.posted.delete(key);
+      }
+    }
+  }
+}
+
+/** Opens/resolves one earnings-race market per epoch; speculators pile in. */
+export class MarketMaker {
+  private c: Contracts;
+  private log: (m: string) => void;
+  private stopped = false;
+  private marketForEpoch = new Map<string, bigint>();
+  private speculators: Array<{ wallet: ethers.Wallet; c: Contracts; name: string }> = [];
+  private stakerReady = false;
+
+  constructor(readonly wallet: ethers.Wallet, readonly addresses: Addresses, provider: ethers.Provider) {
+    this.c = contractsFor(wallet, addresses);
+    this.log = makeLogger("Speculators", "magenta");
+    for (const [i, idx] of [10, 11, 12].entries()) {
+      const w = walletAt(idx, provider);
+      this.speculators.push({ wallet: w, c: contractsFor(w, addresses), name: `whale-${i + 1}` });
+    }
+  }
+
+  stop() { this.stopped = true; }
+
+  async start(): Promise<void> {
+    await withRetries("market maker setup", async () => {
+      await approveAll(this.c, this.addresses);
+      for (const s of this.speculators) await approveAll(s.c, this.addresses);
+    });
+    while (!this.stopped) {
+      try {
+        await this.tick();
+      } catch (err: any) {
+        this.log(paint.red(`tick error: ${String(err?.message ?? err).slice(0, 100)}`));
