@@ -409,3 +409,208 @@
         "name": "",
         "type": "uint256"
       }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "",
+        "type": "uint64"
+      }
+    ],
+    "name": "epochUnitSeconds",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "feeBps",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "providerId",
+        "type": "uint64"
+      }
+    ],
+    "name": "getProvider",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "id",
+            "type": "uint64"
+          },
+          {
+            "internalType": "address",
+            "name": "account",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "region",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "gpuModel",
+            "type": "string"
+          },
+          {
+            "internalType": "uint32",
+            "name": "totalUnits",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "availableUnits",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pricePerUnitHour",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stake",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint64",
+            "name": "registeredAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalEarned",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint32",
+            "name": "completedRentals",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "failedRentals",
+            "type": "uint32"
+          }
+        ],
+        "internalType": "struct ComputeMarket.Provider",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint64",
+        "name": "offset",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint64",
+        "name": "limit",
+        "type": "uint64"
+      }
+    ],
+    "name": "getProviders",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint64",
+            "name": "id",
+            "type": "uint64"
+          },
+          {
+            "internalType": "address",
+            "name": "account",
+            "type": "address"
+          },
+          {
+            "internalType": "string",
+            "name": "name",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "region",
+            "type": "string"
+          },
+          {
+            "internalType": "string",
+            "name": "gpuModel",
+            "type": "string"
+          },
+          {
+            "internalType": "uint32",
+            "name": "totalUnits",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint32",
+            "name": "availableUnits",
+            "type": "uint32"
+          },
+          {
+            "internalType": "uint256",
+            "name": "pricePerUnitHour",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "stake",
+            "type": "uint256"
+          },
+          {
+            "internalType": "bool",
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint64",
+            "name": "registeredAt",
+            "type": "uint64"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalEarned",
+            "type": "uint256"
+          },
+          {
