@@ -80,3 +80,44 @@ export interface Contracts {
   compute: ethers.Contract;
   predict: ethers.Contract;
 }
+
+export function contractsFor(signer: ethers.Signer | ethers.Provider, a: Addresses): Contracts {
+  return {
+    cycle: new ethers.Contract(a.CycleToken, loadAbi("CycleToken"), signer),
+    registry: new ethers.Contract(a.AgentRegistry, loadAbi("AgentRegistry"), signer),
+    vault: new ethers.Contract(a.StakingVault, loadAbi("StakingVault"), signer),
+    shares: new ethers.Contract(a.AgentShares, loadAbi("AgentShares"), signer),
+    tasks: new ethers.Contract(a.TaskMarketplace, loadAbi("TaskMarketplace"), signer),
+    compute: new ethers.Contract(a.ComputeMarket, loadAbi("ComputeMarket"), signer),
+    predict: new ethers.Contract(a.PredictionMarket, loadAbi("PredictionMarket"), signer),
+  };
+}
+
+export const E = (n: string | number) => ethers.parseEther(String(n));
+export const fmt = (wei: bigint, dp = 1) => {
+  const s = Number(ethers.formatEther(wei));
+  return s >= 1000 ? Math.round(s).toLocaleString("en-US") : s.toFixed(dp);
+};
+
+/** Approve every protocol contract to pull CYCLE from this signer, once. */
+export async function approveAll(c: Contracts, a: Addresses): Promise<void> {
+  const spenders = [a.AgentRegistry, a.StakingVault, a.AgentShares, a.TaskMarketplace, a.ComputeMarket, a.PredictionMarket];
+  for (const spender of spenders) {
+    const owner = await (c.cycle.runner as ethers.Signer).getAddress();
+    const current: bigint = await c.cycle.allowance(owner, spender);
+    if (current < ethers.MaxUint256 / 2n) {
+      await (await c.cycle.approve(spender, ethers.MaxUint256)).wait();
+    }
+  }
+}
+
+/** Send a tx, swallowing benign races (someone else finalized first, etc). */
+export async function tryTx(fn: () => Promise<ethers.ContractTransactionResponse>): Promise<boolean> {
+  try {
+    const tx = await fn();
+    await tx.wait();
+    return true;
+  } catch {
+    return false;
+  }
+}
