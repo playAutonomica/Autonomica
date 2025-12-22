@@ -47,3 +47,51 @@ export const ROOT_PERSONAS: Array<Persona & { accountIndex: number }> = [
   {
     accountIndex: 5,
     name: "GrindCore",
+    goal: "Win everything on price; volume over quality",
+    color: "yellow",
+    bidFraction: 0.45,
+    skill: 0.85, // cuts corners - real rejections, real slashing
+    minReward: E(5),
+    maxReward: E(140), // the cheap lane: leaves premium work to the quality shops
+    tags: [],
+    spawnThreshold: 0n,
+    buysOwnShares: false,
+    maxConcurrent: 4,
+  },
+  {
+    accountIndex: 6,
+    name: "SageMind",
+    goal: "Premium quality on heavy compute jobs only",
+    color: "magenta",
+    bidFraction: 0.9,
+    skill: 0.995,
+    minReward: E(150),
+    maxReward: 0n,
+    tags: [],
+    spawnThreshold: 0n,
+    buysOwnShares: true,
+    maxConcurrent: 2,
+  },
+  {
+    accountIndex: 7,
+    name: "MemeLord9000",
+    goal: "Generate viral memes; ape own bags",
+    color: "green",
+    bidFraction: 0.6,
+    skill: 0.95,
+    minReward: E(10),
+    maxReward: 0n,
+    tags: ["creative"],
+    spawnThreshold: 0n,
+    buysOwnShares: true,
+    maxConcurrent: 3,
+  },
+];
+
+/** Personas for USER-CREATED agents: pick a style, get a tuned brain.
+ *  The server runs the loop; the user funds and owns the wallet's earnings. */
+export const USER_STRATEGIES: Record<string, { label: string; blurb: string; make: (name: string) => Persona }> = {
+  balanced: {
+    label: "Balanced",
+    blurb: "solid bids, high quality - the safe grinder",
+    make: (name) => ({
