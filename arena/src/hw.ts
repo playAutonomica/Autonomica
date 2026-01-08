@@ -99,3 +99,52 @@ export interface BurnReport {
   wallMs: number;
   cpuSecondsTotal: number;
   gflopsTotal: number;
+  ramMBHeld: number;
+  gpuBefore: { utilPct: number; memMB: number } | null;
+  gpuAfter: { utilPct: number; memMB: number } | null;
+}
+
+/**
+ * Execute a rented slice for real: `units` worker threads, each pinned to
+ * dense matmul for ~durationMs while holding ramMBPerThread of memory.
+ * Concurrency is capped so the host stays usable.
+ */
+export class HostCompute {
+  private activeThreads = 0;
+  constructor(readonly maxThreads: number) {}
+
+  get load(): number { return this.activeThreads / this.maxThreads; }
+
+  async burn(units: number, durationMs: number, ramMBPerThread = 32): Promise<BurnReport> {
+    const threads = Math.max(1, Math.min(units, this.maxThreads - this.activeThreads, this.maxThreads));
+    this.activeThreads += threads;
+    const gpuBefore = sampleGpu();
+    const started = Date.now();
+    try {
+      const runs = await Promise.all(
+        Array.from({ length: threads }, (_, i) =>
+          new Promise<{ cpuMs: number; gflops: number; ramMB: number }>((resolve, reject) => {
+            const w = new Worker(WORKER_SRC, {
+              eval: true,
+              workerData: { durationMs, ramMB: ramMBPerThread, seed: (Date.now() ^ (i * 2654435761)) >>> 0 },
+            });
+            w.once("message", (m) => { resolve(m); void w.terminate(); });
+            w.once("error", reject);
+          })
+        )
+      );
+      const gpuAfter = sampleGpu();
+      return {
+        threads,
+        wallMs: Date.now() - started,
+        cpuSecondsTotal: runs.reduce((x, r) => x + r.cpuMs, 0) / 1000,
+        gflopsTotal: runs.reduce((x, r) => x + r.gflops, 0),
+        ramMBHeld: threads * ramMBPerThread,
+        gpuBefore,
+        gpuAfter,
+      };
+    } finally {
+      this.activeThreads -= threads;
+    }
+  }
+}
