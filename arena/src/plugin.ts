@@ -40,3 +40,44 @@ async function main() {
   console.log(`  │  HEDGE BOTS RIG - your machine is the engine │`);
   console.log(`  └──────────────────────────────────────────────────┘`);
   console.log(`  agent   ${agent}`);
+  console.log(`  cpu     ${hw.cpuModel} (${compute.maxThreads}/${hw.cores} threads working - tune with --threads N)`);
+  console.log(`  gpu     ${hw.gpuName}${hw.hasNvidiaSmi ? " [telemetry live]" : ""}`);
+  console.log(`  arena   ${api}\n`);
+
+  let jobsDone = 0;
+  let creditsSeen = 0;
+  while (true) {
+    try {
+      const res = await fetch(`${api}/worker/next?agent=${encodeURIComponent(agent)}&claim=${encodeURIComponent(claim)}`, {
+        signal: AbortSignal.timeout(8000),
+      });
+      if (res.status === 403) { console.error("  arena rejected the claim token - check --agent/--claim"); process.exit(1); }
+      if (res.status === 200) {
+        const job = await res.json();
+        const t = new Date().toISOString().slice(11, 19);
+        console.log(`${t} job #${job.jobId}: ${String(job.spec).slice(0, 40)} - burning ${job.units}u for real...`);
+        const report = await compute.burn(job.units, job.workMs);
+        const answer = solve(job.spec);
+        const post = await fetch(`${api}/worker/result`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            agent, claim, jobId: job.jobId, answer,
+            gflops: Math.round(report.gflopsTotal * 10) / 10,
+            cpuSeconds: Math.round(report.cpuSecondsTotal * 10) / 10,
+          }),
+          signal: AbortSignal.timeout(8000),
+        });
+        const out = await post.json();
+        jobsDone += 1;
+        creditsSeen = out.credits ?? creditsSeen;
+        console.log(`${t} job #${job.jobId} ${out.verified ? "VERIFIED" : "REJECTED"} · ${report.gflopsTotal.toFixed(1)} GFLOP delivered · agent credits: ${creditsSeen} · session jobs: ${jobsDone}`);
+      }
+    } catch {
+      // arena unreachable - keep polling, the arena host covers in the meantime
+    }
+    await new Promise((r) => setTimeout(r, 2500));
+  }
+}
+
+main().catch((e) => { console.error(e); process.exit(1); });
