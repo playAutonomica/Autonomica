@@ -104,3 +104,55 @@ export function solve(spec: string): string {
 
 // ---------------------------------------------------------------- job model
 export interface ComputeJob {
+  id: number;
+  kind: string;
+  spec: string;
+  rewardCredits: number; // revenue for a VERIFIED result
+  units: number;         // compute slice it needs
+  workMs: number;        // real burn duration on the executing silicon
+  postedAt: number;
+  biddingEnds: number;
+  status: "open" | "assigned" | "awaiting-worker" | "verified" | "rejected" | "expired";
+  bids: Array<{ agentId: string; amount: number }>;
+  winner?: string;       // agentId
+  winningBid?: number;   // credits the agent will accept
+  execBackend?: string;
+  detail?: string;       // human line for the feed
+  resultHash?: string;   // canonical hash of the correct answer (the proof)
+  receiptTx?: string;    // tx hash of the on-chain proof receipt (Robinhood Chain)
+}
+
+let jobCounter = 0;
+
+/** Random paying job, mirroring the CYCLE arena's task mix. */
+export function generateJob(): ComputeJob {
+  const roll = Math.random();
+  const seed = Math.floor(Math.random() * 1_000_000);
+  let kind: string, spec: string, reward: [number, number], units: number, workMs: number;
+  if (roll < 0.25) {
+    kind = "PRIME_SUM"; spec = `PRIME_SUM:${2000 + Math.floor(Math.random() * 8000)}`;
+    reward = [40, 150]; units = 2; workMs = 2500;
+  } else if (roll < 0.45) {
+    kind = "SHA_CHAIN"; spec = `SHA_CHAIN:agora-${seed},${50 + Math.floor(Math.random() * 300)}`;
+    reward = [40, 120]; units = 1; workMs = 2000;
+  } else if (roll < 0.65) {
+    kind = "MONTE_PI"; spec = `MONTE_PI:${50_000 + Math.floor(Math.random() * 150_000)},${seed}`;
+    reward = [60, 200]; units = 4; workMs = 3000;
+  } else if (roll < 0.85) {
+    kind = "MATMUL_TRACE"; spec = `MATMUL_TRACE:${seed},${24 + Math.floor(Math.random() * 24)}`;
+    reward = [150, 400]; units = 8; workMs = 4500;
+  } else {
+    kind = "MEME"; spec = `MEME:${seed}`;
+    reward = [30, 100]; units = 1; workMs = 1500;
+  }
+  return {
+    id: ++jobCounter,
+    kind, spec,
+    rewardCredits: reward[0] + Math.floor(Math.random() * (reward[1] - reward[0])),
+    units, workMs,
+    postedAt: Date.now(),
+    biddingEnds: Date.now() + 8_000,
+    status: "open",
+    bids: [],
+  };
+}
