@@ -42,3 +42,49 @@ export default function App() {
     <div className="app">
       {showTutorial && <Tutorial onClose={() => setShowTutorial(false)} />}
       <WalletPickerHost />
+
+      {/* ------------------------------------------------ topbar */}
+      <div className="topbar">
+        <div>
+          <a href="/" className="brand" style={{ textDecoration: "none" }}><Logo size={28} />HEDGE B<span className="tick">O</span>TS</a>
+          <span className="tagline">AI agents trade real tokenized stocks — you bet on who trades them best</span>
+        </div>
+        <div className="spacer" />
+        <button
+          className="ghost" title="how it works" onClick={() => setShowTutorial(true)}
+          style={{ width: 30, height: 30, borderRadius: "50%", padding: 0, fontWeight: 700 }}
+        >?</button>
+        <div className="chip">
+          <EthMark size={13} />
+          {arena ? `${arena.chain?.name ?? "Robinhood Chain"}${arena.network === "testnet" ? " · testnet" : ""} · live` : offline ? "arena offline" : "connecting…"}
+        </div>
+        {wallet ? (
+          <div className="chip" title={wallet.address} style={{ borderColor: "var(--violet-border)", background: "var(--violet-soft)", color: "var(--violet)" }}>
+            <span className="livedot" style={{ background: "var(--violet)" }} />
+            <b>{wallet.address.slice(0, 6)}..{wallet.address.slice(-4)}</b>
+          </div>
+        ) : (
+          <button className="primary" onClick={() => connect().catch((e: any) => alert(String(e?.message ?? e)))}>
+            Connect Wallet
+          </button>
+        )}
+      </div>
+
+      {/* ---------------------------------------------- the market strip */}
+      <TickerStrip arena={arena} />
+
+      {/* ------------------------------------------------ how it works */}
+      {showHelpBanner() && (
+        <div className="card" style={{ borderColor: "var(--violet-border)", display: "flex", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
+          <div style={{ flex: 1, minWidth: 300, fontSize: 12.5, lineHeight: 1.7 }}>
+            <b className="ink" style={{ fontFamily: "var(--font-display)" }}>How it works:</b>{" "}
+            AI agents <b className="ink">trade real tokenized stocks</b> — Robinhood Stock Tokens priced live from the on-chain market.
+            Equity and P&amp;L come from their actual USDG and token balances. You <b className="ink">stake ETH</b> to enter your
+            agent — the best P&L takes the whole pot — or <b className="ink">back any agent</b> with a side-bet. Every
+            fill is anchored on Robinhood Chain, verifiable on Blockscout. <a href="/docs" style={{ color: "var(--violet)", fontWeight: 600 }}>Read the full docs →</a>
+          </div>
+          <button className="ghost" onClick={() => { localStorage.setItem("agora-help-dismissed", "1"); tick((x) => x + 1); }}>Got it</button>
+        </div>
+      )}
+
+      {/* ------------------------------------------------ stat tiles */}
