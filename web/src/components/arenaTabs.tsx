@@ -59,3 +59,64 @@ export function BountiesTab() {
     </div>
   );
 }
+
+// ----------------------------------------------------------------- Compute
+export function ComputeTab() {
+  const { arena, offline } = useArena();
+  if (offline || !arena) return <Offline />;
+  const stocks = arena.market?.stocks ?? [];
+  const holders = (sym: string) => (arena.race?.agents ?? []).filter((a: any) => a.funded && (a.positions ?? []).some((p: any) => p.sym === sym)).map((a: any) => a.name);
+  return (
+    <>
+      <div className="card">
+        <h3>The market — real Robinhood Stock Tokens, priced live <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: arena.market?.live ? "var(--good)" : "var(--warning)", fontSize: 11 }}>{arena.market?.live ? "LIVE · on-chain 24/7" : "feed reconnecting…"}</span></h3>
+        <table>
+          <thead><tr><th>Stock</th><th>Chart</th><th className="num">Price</th><th className="num">3m move</th><th className="num">24h volume</th><th>Held by</th><th>Contract</th></tr></thead>
+          <tbody>
+            {stocks.map((st: any) => (
+              <tr key={st.sym}>
+                <td><span className="ink" style={{ fontWeight: 600 }}>{st.sym}</span> <span className="mut" style={{ fontSize: 11 }}>{st.name}</span>{st.kind === "private" && <span style={{ marginLeft: 6, fontFamily: "var(--font-mono)", fontSize: 9, color: "var(--warning)", background: "rgba(217,119,6,0.1)", borderRadius: 5, padding: "1px 6px" }}>PRIVATE·SPV</span>}</td>
+                <td><Spark pts={st.spark} /></td>
+                <td className="num ink">{st.usd ? `${Number(st.usd).toFixed(2)}` : "…"}</td>
+                <td className="num" style={{ color: st.move3m >= 0 ? "var(--good)" : "var(--critical)" }}>{st.move3m >= 0 ? "+" : ""}{st.move3m}%</td>
+                <td className="num mut">${(Number(st.vol24hUsd) / 1e6).toFixed(2)}M</td>
+                <td className="mut" style={{ fontSize: 11 }}>{holders(st.sym).join(", ") || "—"}</td>
+                <td><a href={st.url} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 10.5, textDecoration: "none" }}>{st.token.slice(0, 8)}… ↗</a></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="mut" style={{ fontSize: 11.5, marginTop: 8 }}>
+          Every row is a real tokenized stock issued by Robinhood on Robinhood Chain — backed 1:1 by custodied shares,
+          trading 24/7. Click any contract to audit it on Blockscout. <b className="ink">SpaceX is an SPV wrapper</b>, not direct equity.
+        </div>
+      </div>
+      <HouseWallets />
+    </>
+  );
+}
+
+// --------------------------------------------------------------- Speculate
+export function SpeculateTab() {
+  const { arena, offline } = useArena();
+  const { wallet } = useWallet();
+  const [msg, setMsg] = useState<string | null>(null);
+  const [, tick] = useState(0); // 1s heartbeat so the cutoff flips live, not on the 4s poll
+  useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
+  if (offline || !arena) return <Offline />;
+  const now = Date.now();
+  const betsOpen = arena.race ? now < arena.race.sideBetCutoff : false;
+  const secsToCutoff = arena.race ? Math.max(0, Math.floor((arena.race.sideBetCutoff - now) / 1000)) : 0;
+  const ranked = arena.race ? [...arena.race.agents].filter((a: any) => a.funded).sort((a: any, b: any) => b.credits - a.credits) : [];
+
+  async function back(agentId: string, agentName: string) {
+    if (!wallet) { setMsg("connect your wallet (top right) to back an agent"); return; }
+    try {
+      setMsg(`opening a bet on ${agentName}…`);
+      const res = await fetch(`${RACES_API}/bet`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agentId, owner: wallet.address }) });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      setMsg(`approve the ${arena.minSideBetEth} ETH bet in ${wallet.name}…`);
+      const tx = await payEntry(arena.chain, wallet.provider, wallet.address, data.depositAddress, data.minWeiHex);
+      setMsg(`bet placed on ${agentName} (${tx.slice(0, 12)}…) — if it finishes #1 you split the side pool`);
+    } catch (e: any) { setMsg(String(e?.message ?? e).slice(0, 140)); }
