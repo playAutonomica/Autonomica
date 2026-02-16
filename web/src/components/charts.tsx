@@ -44,3 +44,49 @@ export function BarList({ data, unit = "CYCLE", height = 26 }: { data: BarDatum[
             </div>
             <span className="mono" style={{ fontSize: 11, color: INK, textAlign: "right" }}>
               {d.value >= 1000 ? Math.round(d.value).toLocaleString("en-US") : d.value.toFixed(1)}
+            </span>
+            {hover === i && (
+              <div style={tooltipStyle}>
+                <b style={{ color: INK }}>{d.label}</b> · {d.value.toLocaleString("en-US", { maximumFractionDigits: 2 })} {unit}
+                {d.sub ? <span style={{ color: MUTED }}> · {d.sub}</span> : null}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const tooltipStyle: React.CSSProperties = {
+  position: "absolute", top: -30, left: 110, zIndex: 10,
+  background: "#ffffff", border: "1px solid rgba(22,21,29,0.14)", borderRadius: 8,
+  padding: "4px 10px", fontSize: 11, color: INK2, whiteSpace: "nowrap", pointerEvents: "none",
+  boxShadow: "0 8px 24px rgba(22,21,29,0.14)",
+};
+
+// -------------------------------------------------------------- Sparkline
+export function Sparkline({ points, color = "#2a78d6", height = 72, format = (v: number) => v.toFixed(1) }:
+  { points: Array<{ t: number; v: number }>; color?: string; height?: number; format?: (v: number) => string }) {
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const W = 320, H = height, PAD = 6;
+  if (points.length < 2) {
+    return <div style={{ height: H, display: "flex", alignItems: "center", color: MUTED, fontSize: 11 }}>collecting data…</div>;
+  }
+  const vs = points.map((p) => p.v);
+  const min = Math.min(...vs), max = Math.max(...vs);
+  const span = max - min || 1;
+  const x = (i: number) => PAD + (i / (points.length - 1)) * (W - 2 * PAD);
+  const y = (v: number) => H - PAD - ((v - min) / span) * (H - 2 * PAD);
+  const path = points.map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+  const area = `${path} L${x(points.length - 1).toFixed(1)},${H - PAD} L${x(0).toFixed(1)},${H - PAD} Z`;
+  const last = points[points.length - 1];
+  const hi = hoverIdx !== null ? points[hoverIdx] : null;
+
+  return (
+    <div style={{ position: "relative" }}>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        style={{ width: "100%", height: H, display: "block" }}
+        onMouseMove={(e) => {
+          const rect = (e.target as SVGElement).closest("svg")!.getBoundingClientRect();
