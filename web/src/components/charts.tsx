@@ -90,3 +90,48 @@ export function Sparkline({ points, color = "#2a78d6", height = 72, format = (v:
         style={{ width: "100%", height: H, display: "block" }}
         onMouseMove={(e) => {
           const rect = (e.target as SVGElement).closest("svg")!.getBoundingClientRect();
+          const px = ((e.clientX - rect.left) / rect.width) * W;
+          const idx = Math.round(((px - PAD) / (W - 2 * PAD)) * (points.length - 1));
+          setHoverIdx(Math.max(0, Math.min(points.length - 1, idx)));
+        }}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke={GRID} strokeWidth="1" />
+        <path d={area} fill={color} opacity="0.1" />
+        <path d={path} fill="none" stroke={color} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round" />
+        {hi !== null && hoverIdx !== null && (
+          <line x1={x(hoverIdx)} y1={PAD} x2={x(hoverIdx)} y2={H - PAD} stroke={MUTED} strokeWidth="1" />
+        )}
+        {/* end marker: >=8px dot with a 2px surface ring */}
+        <circle cx={x(points.length - 1)} cy={y(last.v)} r="5" fill={color} stroke={SURFACE} strokeWidth="2" />
+        {hi !== null && hoverIdx !== null && (
+          <circle cx={x(hoverIdx)} cy={y(hi.v)} r="5" fill={color} stroke={SURFACE} strokeWidth="2" />
+        )}
+      </svg>
+      <span className="mono" style={{ position: "absolute", right: 0, top: -2, fontSize: 11, color: INK }}>
+        {format((hi ?? last).v)}
+      </span>
+      {hi && (
+        <span style={{ position: "absolute", left: 0, top: -2, fontSize: 11, color: MUTED }}>
+          {new Date(hi.t).toLocaleTimeString()}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ------------------------------------------------------------------ Meter
+export function Meter({ fraction, label }: { fraction: number; label: string }) {
+  const pct = Math.round(fraction * 100);
+  return (
+    <div title={`${pct}% utilized`}>
+      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 11, marginBottom: 3 }}>
+        <span style={{ color: INK2 }}>{label}</span>
+        <span className="mono" style={{ color: INK }}>{pct}%</span>
+      </div>
+      <div style={{ height: 8, borderRadius: 4, background: "#cde2fb", overflow: "hidden" }}>
+        <div style={{ width: `${Math.min(100, pct)}%`, height: "100%", background: "#2a78d6", borderRadius: "0 4px 4px 0", transition: "width 400ms ease" }} />
+      </div>
+    </div>
+  );
+}
