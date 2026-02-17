@@ -336,3 +336,172 @@ export function BuildAgentForm() {
           <button className="primary" onClick={doConnect}>Connect Wallet</button>
           <span className="mut">stake real ETH on Robinhood Chain{arena?.network === "testnet" ? " (testnet)" : ""} · agents race real wallet equity · best P&amp;L takes the pot</span>
           {msg && <span className={msg.err ? "err" : "ok"}>{msg.text}</span>}
+        </div>
+      ) : (
+        <>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <span className="mut mono" style={{ fontSize: 11 }}>{wallet.name} · {wallet.address.slice(0, 6)}..{wallet.address.slice(-4)}</span>
+            <input style={{ ...ctl, width: 140 }} placeholder="agent name" maxLength={24} value={name} onChange={(e) => setName(e.target.value)} />
+            <select style={ctl} value={strategy} onChange={(e) => setStrategy(e.target.value)}>
+              {arena && Object.entries(arena.strategies).map(([id, st]: any) => <option key={id} value={id}>{st.name} — {st.blurb}</option>)}
+            </select>
+            <select style={ctl} value={entryEth} onChange={(e) => setEntryEth(Number(e.target.value))}>
+              {stakes.map((v) => <option key={v} value={v}>{v} ETH stake</option>)}
+            </select>
+            <button className="primary" disabled={busy || !joinOpen} onClick={join}>{joinOpen ? "Stake & enter" : "entries locked"}</button>
+          </div>
+
+                    {joinOpen
+            ? <div className="ok" style={{ fontSize: 12 }}>🟡 lobby open — entries lock in {Math.floor(lobbyLeft / 60)}:{String(lobbyLeft % 60).padStart(2, "0")}. Stake now to be in race #{arena?.race?.id}.</div>
+            : <div className="mut" style={{ fontSize: 12 }}>race in progress — next lobby opens in {Math.floor(nextLobby / 60)}:{String(nextLobby % 60).padStart(2, "0")}.</div>}
+          {msg && <div className={msg.err ? "err" : "ok"}>{msg.text}</div>}
+        </>
+      )}
+      <div className="mut" style={{ fontSize: 11.5, marginTop: 10 }}>
+        You <b className="ink">stake ETH</b> as your buy-in. House agents race using their <b className="ink">real USDG and Stock Tokens</b>;
+        the best on-chain portfolio P&amp;L takes the pot, with every executed swap linked on Blockscout.
+      </div>
+
+      {/* who you're up against */}
+      {arena?.race && (
+        <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px solid var(--border)" }}>
+          <div className="mut" style={{ fontSize: 10.5, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: 8 }}>
+            You're up against — {arena.race.agents.filter((a: any) => a.funded).length} agents in race #{arena.race.id}
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+            {[...arena.race.agents].filter((a: any) => a.funded).sort((a: any, b: any) => b.credits - a.credits).map((a: any) => (
+              <span key={a.id} style={{
+                display: "inline-flex", alignItems: "center", gap: 6, fontFamily: "var(--font-mono)", fontSize: 11.5,
+                padding: "4px 10px", borderRadius: 999, border: "1px solid var(--border)", background: "var(--surface-2)",
+              }}>
+                <span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6", margin: 0 }} />
+                <span className="ink">{a.name}</span>
+                <span className="mut">{a.house ? "house" : "player"}</span>
+                <span style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)" }}>{fmtPnl(a.credits)}</span>
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================ ArenaLeaderboard
+// Every agent, real on-chain compute earnings — current race + past winners.
+export function ArenaLeaderboard() {
+  const { arena, offline } = useArena();
+  const { wallet } = useWallet();
+  if (offline || !arena) return <div className="card"><h3>Leaderboard <span className="hbar" /></h3><div className="emptystate"><span className="big">⛓</span>the arena is reconnecting — one moment…</div></div>;
+
+  const live = arena.race ? [...arena.race.agents].filter((a: any) => a.funded).sort((a: any, b: any) => b.credits - a.credits) : [];
+  // hall of fame: past POT winners (real ETH champions, not house top-scorers)
+  const champs = (arena.pastRaces ?? []).map((r: any) => ({ race: r.id, ...(potChampion(r) ?? {}) })).filter((c: any) => c.name);
+
+  return (
+    <>
+      <div className="card">
+        <h3>Live leaderboard — race #{arena.race?.id} <span className="hbar" /><span className="livedot" /></h3>
+        <table>
+          <thead><tr><th>#</th><th>Agent</th><th>Desk</th><th className="num">P&L</th><th className="num">W/L</th><th className="num">Equity</th></tr></thead>
+          <tbody>
+            {live.map((a: any, i: number) => (
+              <tr key={a.id} style={wallet && a.owner === wallet.address ? { background: "var(--violet-soft)" } : undefined}>
+                <td className="mut">{i + 1}</td>
+                <td><a href={`/agent/${a.id}`} style={{ textDecoration: "none" }} title="open this desk's dashboard — trades, P&L, tx ids"><span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6" }} /><span className="ink" style={{ borderBottom: "1px dashed var(--border-strong)" }}>{a.name}</span></a>{wallet && a.owner === wallet.address && <span style={{ color: "var(--violet)", fontSize: 10 }}> · YOURS</span>}{a.house ? <span className="mut" style={{ fontSize: 10 }}> · house</span> : <span className="mut" style={{ fontSize: 10 }}> · player</span>}{a.wallet && <> · <a href={explorerAddressUrl(arena, a.wallet)} target="_blank" rel="noreferrer" title={`${a.name}'s wallet on Blockscout`} style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 10, textDecoration: "none" }}>{a.wallet.slice(0, 6)}..{a.wallet.slice(-4)} ↗</a></>}</td>
+                <td className="mut" style={{ fontSize: 11 }}>{a.desk ?? arena.strategies?.[a.strategy]?.name}</td>
+                <td className="num" style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)" }}>{fmtPnl(a.credits)}</td>
+                <td className="num">{a.jobsVerified}/{a.jobsRejected}</td>
+                <td className="num">${(a.equityUsd ?? 0).toFixed(2)}</td>
+              </tr>
+            ))}
+            {live.length === 0 && <tr><td colSpan={6} className="mut" style={{ padding: 14 }}>agents funding up…</td></tr>}
+          </tbody>
+        </table>
+      </div>
+      {champs.length > 0 && (
+        <div className="card">
+          <h3>Hall of fame — past champions <span className="hbar" /></h3>
+          <table>
+            <thead><tr><th>Race</th><th>Champion</th><th className="num">P&L</th><th className="num">ETH won</th><th>Proof</th></tr></thead>
+            <tbody>
+              {champs.map((c: any) => (
+                <tr key={c.race}><td className="mut">#{c.race}</td><td className="ink">🥇 {c.name}</td><td className="num">{c.credits?.toFixed(0) ?? "—"}</td><td className="num" style={{ color: "var(--good)" }}>{c.paidEth > 0 ? <>{fmtEth(c.paidEth)} <EthMark size={10} /></> : "—"}</td><td>{c.tx ? <a href={explorerTxUrl(arena, c.tx)} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>on-chain ↗</a> : <span className="mut">—</span>}</td></tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================================================ MyComputeRoster
+// The per-user dashboard: ETH balance, W/L, agents, compute — once connected.
+export function MyComputeRoster() {
+  const { arena, offline } = useArena();
+  const { wallet, connect } = useWallet();
+  const [bal, setBal] = useState<number | null>(null);
+  useEffect(() => {
+    let alive = true;
+    if (wallet && arena) {
+      const load = () => getBalanceEth(arena.rpc, wallet.address).then((b) => alive && setBal(b)).catch(() => {});
+      load();
+      const t = setInterval(load, 8000);
+      return () => { alive = false; clearInterval(t); };
+    }
+  }, [wallet?.address, arena?.rpc]);
+
+  if (offline || !arena) return <div className="card"><h3>Your dashboard <span className="hbar" /></h3><div className="emptystate"><span className="big">⛓</span>the arena is reconnecting — one moment…</div></div>;
+  if (!wallet) return (
+    <div className="card"><h3>Your dashboard <span className="hbar" /></h3>
+      <div className="emptystate"><span className="big">🤖</span>Connect your wallet to open your dashboard — your ETH balance, your agents, wins &amp; losses, and the compute they've delivered.
+        <div style={{ marginTop: 12 }}><button className="primary" onClick={() => connect().catch(() => {})}>Connect Wallet</button></div>
+      </div>
+    </div>
+  );
+
+  const live = (arena.race?.agents ?? []).filter((a: any) => a.owner === wallet.address);
+  const past = arena.pastRaces ?? [];
+  const myEntries = past.filter((r: any) => r.results.some((x: any) => x.owner === wallet.address));
+  // W/L only counts CONTESTED races (≥2 stakers). Solo races are refunds, not wins/losses.
+  const myContested = myEntries.filter((r: any) => isContested(r));
+  const wins = myContested.filter((r: any) => potChampion(r)?.owner === wallet.address).length;
+  const losses = myContested.length - wins;
+  // "ETH won" = prize ETH from races actually won (excludes solo refunds of your own stake).
+  const ethWon = myContested.reduce((s: number, r: any) => s + (potChampion(r)?.owner === wallet.address ? (potChampion(r)?.paidEth || 0) : 0), 0);
+
+  const liveVerified = live.reduce((s: number, a: any) => s + a.jobsVerified, 0);
+  const liveRejected = live.reduce((s: number, a: any) => s + a.jobsRejected, 0);
+  const liveCredits = live.reduce((s: number, a: any) => s + a.credits, 0);
+  const winRate = myContested.length > 0 ? Math.round((wins / myContested.length) * 100) : 0;
+
+  const Tile = ({ label, value, accent }: { label: string; value: React.ReactNode; accent?: boolean }) => (
+    <div style={{ background: "var(--surface-2)", border: "1px solid var(--border)", borderRadius: 12, padding: "11px 14px" }}>
+      <div className="mut" style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 5 }}>{label}</div>
+      <div className="mono" style={{ fontSize: 19, fontWeight: 600, color: accent ? "var(--accent)" : "var(--ink)" }}>{value}</div>
+    </div>
+  );
+
+  return (
+    <>
+      <div className="card" style={{ borderColor: "var(--violet-border)", background: "linear-gradient(180deg, var(--violet-soft), var(--surface))" }}>
+        <h3>Your dashboard <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: "var(--muted)" }}>{wallet.address.slice(0, 6)}..{wallet.address.slice(-4)}</span></h3>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(6, 1fr)", gap: 10 }}>
+          <Tile label="ETH balance" value={bal !== null ? <>{fmtEth(bal)} <EthMark size={13} /></> : "…"} accent />
+          <Tile label="Record (W/L)" value={`${wins}W · ${losses}L`} />
+          <Tile label="Win rate" value={`${winRate}%`} />
+          <Tile label="ETH won" value={<>{fmtEth(ethWon)} <EthMark size={13} /></>} accent />
+          <Tile label="Agents racing" value={`${live.length}`} />
+          <Tile label="Live P&L" value={`${liveCredits >= 0 ? "+$" : "−$"}${Math.abs(liveCredits).toFixed(0)}`} accent />
+        </div>
+      </div>
+
+      <div className="card">
+        <h3>Your agents — this race <span className="hbar" />{live.length > 0 && <span className="mono" style={{ letterSpacing: 0, color: liveCredits >= 0 ? "var(--good)" : "var(--critical)" }}>{liveCredits >= 0 ? "+$" : "−$"}{Math.abs(liveCredits).toFixed(0)} · {liveVerified}W {liveRejected}L</span>}</h3>
+        {live.length > 0 ? (
+          <table>
+            <thead><tr><th>Agent</th><th>Desk</th><th>Positions</th><th className="num">P&L</th><th className="num">W/L</th><th className="num">Equity</th></tr></thead>
+            <tbody>
+              {live.map((a: any) => (
+                <tr key={a.id}>
