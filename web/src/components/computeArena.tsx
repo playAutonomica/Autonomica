@@ -505,3 +505,172 @@ export function MyComputeRoster() {
             <tbody>
               {live.map((a: any) => (
                 <tr key={a.id}>
+                  <td><span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6" }} /><span className="ink">{a.name}</span></td>
+                  <td className="mut" style={{ fontSize: 11.5 }}>{a.desk ?? arena.strategies[a.strategy]?.name}</td>
+                  <td className="mut" style={{ fontSize: 11 }}>{(a.positions ?? []).map((p: any) => `${p.sym} ${p.qty}`).join(", ") || "all cash"}</td>
+                  <td className="num" style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)" }}>{fmtPnl(a.credits)}</td>
+                  <td className="num"><span className="wl-w">{a.jobsVerified}W</span> <span className="wl-l">{a.jobsRejected}L</span></td>
+                  <td className="num">${(a.equityUsd ?? 0).toFixed(2)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        ) : <div className="mut" style={{ fontSize: 12.5, padding: "4px 0 8px" }}>No agent in the current race. Build one below — it shows up here, ranked and earning.</div>}
+      </div>
+
+      {myEntries.length > 0 && (
+        <div className="card">
+          <h3>Your history <span className="hbar" /></h3>
+          <table>
+            <thead><tr><th>Race</th><th>Result</th><th className="num">Net cr</th><th className="num">ETH</th><th>Proof</th></tr></thead>
+            <tbody>
+              {[...past].filter((r: any) => r.results.some((x: any) => x.owner === wallet.address)).map((r: any) => {
+                const mine = r.results.find((x: any) => x.owner === wallet.address);
+                const won = potChampion(r)?.owner === wallet.address;
+                const refunded = !isContested(r) && (mine?.paidEth || 0) > 0;
+                return (
+                  <tr key={r.id}>
+                    <td className="mut">#{r.id}</td>
+                    <td style={{ color: won ? "var(--good)" : "var(--ink-2)" }}>{won ? "🥇 won" : refunded ? "↩ refund" : "raced"} · {mine?.name}</td>
+                    <td className="num">{mine?.credits?.toFixed(0) ?? "—"}</td>
+                    <td className="num" style={{ color: "var(--good)" }}>{mine?.paidEth > 0 ? <>+{fmtEth(mine.paidEth)} <EthMark size={10} /></> : "—"}</td>
+                    <td>{mine?.tx ? <a href={explorerTxUrl(arena, mine.tx)} target="_blank" rel="noreferrer" style={{ color: "var(--violet)", fontFamily: "var(--font-mono)", fontSize: 11.5 }}>↗</a> : <span className="mut">—</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </>
+  );
+}
+
+// ============================================================ CompareCharts
+// Head-to-head data: every agent's credit curve on one chart + a comparison
+// table of machine, rent, revenue, margins and efficiency — so a visitor can
+// judge WHO is running the best compute business, at a glance.
+export function CompareCharts() {
+  const { arena } = useArena();
+  const race = arena?.race;
+  const [hover, setHover] = useState<string | null>(null);
+  if (!race) return null;
+  const agents = [...race.agents].filter((a: any) => a.funded).sort((a: any, b: any) => b.credits - a.credits);
+  if (!agents.length) return null;
+
+  const allPts = agents.flatMap((a: any) => a.creditHistory ?? []);
+  const t0 = Math.min(...allPts.map((p: any) => p.t));
+  const t1 = Math.max(...allPts.map((p: any) => p.t), t0 + 1);
+  const v0 = Math.min(0, ...allPts.map((p: any) => p.v));
+  const v1 = Math.max(10, ...allPts.map((p: any) => p.v));
+  const W = 760, H = 210, PAD = 8;
+  const x = (t: number) => PAD + ((t - t0) / (t1 - t0)) * (W - 2 * PAD);
+  const y = (v: number) => H - PAD - ((v - v0) / (v1 - v0)) * (H - 2 * PAD);
+
+  const fmtPct = (n: number) => `${Math.round(n)}%`;
+  const rentOf = (a: any) => a.silicon?.match(/\((\d+) cr\/u-hr\)/)?.[1] ?? (a.backend === "own" ? "0" : "—");
+
+  return (
+    <div className="card">
+      <h3>Compare the books — head-to-head <span className="hbar" /><span className="mono" style={{ letterSpacing: 0, color: "var(--muted)", fontSize: 11 }}>P&L over the race · hover a line or row</span></h3>
+
+      {/* credits-over-time, all agents on one canvas */}
+      <div style={{ overflowX: "auto" }}>
+        <svg viewBox={`0 0 ${W} ${H}`} style={{ width: "100%", minWidth: 560, display: "block" }}>
+          <line x1={PAD} x2={W - PAD} y1={y(0)} y2={y(0)} stroke="var(--border-strong)" strokeDasharray="4 4" strokeWidth="1" />
+          <text x={W - PAD - 2} y={y(0) - 4} textAnchor="end" fontSize="9" fill="var(--muted)" fontFamily="var(--font-mono)">$0</text>
+          {agents.map((a: any) => {
+            const pts = (a.creditHistory ?? []).map((p: any) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`).join(" ");
+            const c = STRAT_COLOR[a.strategy] ?? "#2a78d6";
+            const dim = hover && hover !== a.id;
+            return (
+              <g key={a.id} onMouseEnter={() => setHover(a.id)} onMouseLeave={() => setHover(null)} style={{ cursor: "pointer" }}>
+                <polyline points={pts} fill="none" stroke={c} strokeWidth={hover === a.id ? 3 : 2} opacity={dim ? 0.18 : 1} strokeLinejoin="round" strokeLinecap="round" />
+                {(a.creditHistory ?? []).length > 0 && (() => { const last = a.creditHistory[a.creditHistory.length - 1]; return (
+                  <circle cx={x(last.t)} cy={y(last.v)} r={hover === a.id ? 4 : 2.5} fill={c} opacity={dim ? 0.18 : 1} />
+                ); })()}
+              </g>
+            );
+          })}
+        </svg>
+      </div>
+      {/* legend */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "6px 0 12px" }}>
+        {agents.map((a: any) => (
+          <span key={a.id} onMouseEnter={() => setHover(a.id)} onMouseLeave={() => setHover(null)}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "3px 10px", borderRadius: 999, border: `1px solid ${hover === a.id ? (STRAT_COLOR[a.strategy] ?? "#2a78d6") : "var(--border)"}`, background: "var(--surface-2)", fontFamily: "var(--font-mono)", fontSize: 10.5, cursor: "default" }}>
+            <span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6", margin: 0 }} />
+            <span className="ink">{a.name}</span>
+            <span style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)" }}>{a.credits >= 0 ? "+" : ""}{a.credits.toFixed(0)}</span>
+          </span>
+        ))}
+      </div>
+
+      {/* the head-to-head numbers */}
+      <div style={{ overflowX: "auto" }}>
+        <table>
+          <thead><tr><th>Agent</th><th>Desk</th><th className="num">Equity</th><th className="num">Cash</th><th className="num">P&L</th><th className="num">Trades</th><th className="num">Win rate</th><th>Book</th></tr></thead>
+          <tbody>
+            {agents.map((a: any) => {
+              const total = a.jobsVerified + a.jobsRejected;
+              return (
+                <tr key={a.id} onMouseEnter={() => setHover(a.id)} onMouseLeave={() => setHover(null)} style={hover === a.id ? { background: "var(--violet-soft)" } : undefined}>
+                  <td><span className="dot" style={{ background: STRAT_COLOR[a.strategy] ?? "#2a78d6" }} /><span className="ink">{a.name}</span>{!a.house && <span style={{ color: "var(--violet)", fontSize: 9 }}> ·player</span>}</td>
+                  <td className="mut" style={{ fontSize: 10.5 }}>{a.desk}</td>
+                  <td className="num ink">${(a.equityUsd ?? 0).toFixed(2)}</td>
+                  <td className="num mut">${(a.cashUsd ?? 0).toFixed(0)}</td>
+                  <td className="num" style={{ color: a.credits >= 0 ? "var(--good)" : "var(--critical)", fontWeight: 700 }}>{fmtPnl(a.credits)}</td>
+                  <td className="num">{a.jobsWon}</td>
+                  <td className="num">{total > 0 ? Math.round((a.jobsVerified / total) * 100) + "%" : "—"}</td>
+                  <td className="mut" style={{ fontSize: 10.5 }}>{(a.positions ?? []).map((p: any) => `${p.sym} $${p.valueUsd.toFixed(0)}`).join(" · ") || "all cash"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <div className="mut" style={{ fontSize: 11, marginTop: 8 }}>
+        <b className="ink">How to read it:</b> equity is the wallet's live USDG plus stock-token value. P&amp;L is the change
+        from its on-chain equity when the race opened; the curve updates from confirmed balances and live token prices.
+      </div>
+    </div>
+  );
+}
+
+// =========================================================== LiveFloorFeed
+// The "what the desks are ACTUALLY doing" card: a terminal of every real
+// event — entries, exits, realized P&L, ETH settled — plus the trading
+// telemetry for the race. All of it is live /state data.
+export function LiveComputeFeed() {
+  const { arena } = useArena();
+  const race = arena?.race;
+  if (!race) return null;
+  const funded = race.agents.filter((a: any) => a.funded);
+  const lines = funded
+    .flatMap((a: any) => (a.events ?? []).map((e: any) => ({ at: e.at, name: a.name, color: STRAT_COLOR[a.strategy] ?? "#2a78d6", text: e.text })))
+    .sort((x: any, y: any) => y.at - x.at)
+    .slice(0, 18);
+  const wins = funded.reduce((s: number, a: any) => s + a.jobsVerified, 0);
+  const losses = funded.reduce((s: number, a: any) => s + a.jobsRejected, 0);
+  const tradesN = funded.reduce((s: number, a: any) => s + a.jobsWon, 0);
+  const rate = wins + losses > 0 ? Math.round((wins / (wins + losses)) * 100) : 100;
+  const mkt = arena?.market;
+
+  const chip = (label: string, value: string) => (
+    <span key={label} style={{ display: "inline-flex", gap: 6, alignItems: "baseline", padding: "4px 10px", borderRadius: 8, border: "1px solid var(--border)", background: "var(--surface-2)" }}>
+      <span className="mut" style={{ fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.08em" }}>{label}</span>
+      <span className="mono ink" style={{ fontSize: 12.5, fontWeight: 600 }}>{value}</span>
+    </span>
+  );
+
+  return (
+    <div className="card">
+      <h3>Live floor feed — what the desks are doing right now <span className="hbar" /><span className="livedot" /></h3>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        {chip("trades", `${tradesN}`)}
+        {chip("winning exits", `${wins}W`)}
+        {chip("losing exits", `${losses}L`)}
+        {chip("win rate", `${rate}%`)}
+        {chip("market", mkt?.live ? "LIVE · Robinhood Chain" : "reconnecting…")}
+        {(mkt?.stocks ?? []).slice(0, 3).map((st: any) => chip(st.sym, st.usd ? `$${Number(st.usd).toFixed(2)}` : "…"))}
+      </div>
