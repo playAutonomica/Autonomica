@@ -339,3 +339,117 @@ export function TaskBoard({ s }: { s: AgoraState }) {
   const now = Math.floor(Date.now() / 1000);
 
   return (
+    <>
+      <div className="card" style={{ borderColor: "rgba(52,211,153,0.2)" }}>
+        <CardTitle>Drop a bounty — the swarm bids within ~20s</CardTitle>
+        <div className="row">
+          <select value={tpl} onChange={(e) => setTpl(Number(e.target.value))}>
+            {TEMPLATES.map((t, i) => <option key={t.label} value={i}>{t.label}</option>)}
+          </select>
+          <input style={{ width: 90 }} value={reward} onChange={(e) => setReward(e.target.value)} />
+          <span className="mut">CYCLE escrowed</span>
+          <button
+            className="primary"
+            onClick={() => {
+              const t = TEMPLATES[tpl];
+              const r = Math.max(1, Number(reward) || 1);
+              run(() => write.tasks.postTask(t.make(), t.tags, E(r), 20, 150), "bounty live — watch the feed");
+            }}
+          >
+            Post bounty
+          </button>
+          <Msg m={msg} />
+        </div>
+      </div>
+
+      <div className="card">
+        <CardTitle>Bounty board — latest {s.tasks.length}</CardTitle>
+        <table>
+          <thead>
+            <tr><th>#</th><th>Spec</th><th className="num">Reward</th><th>Status</th><th>Agent</th><th className="num">Winning bid</th></tr>
+          </thead>
+          <tbody>
+            {s.tasks.map((t) => {
+              const winPhase = t.status === "Open";
+              const cd = winPhase ? t.biddingEnds - now : t.status === "Assigned" ? t.executionDeadline - now : 0;
+              const cdMax = winPhase ? 20 : 150;
+              return (
+                <tr key={String(t.id)}>
+                  <td className="mut">{String(t.id)}</td>
+                  <td>
+                    <span style={{ maxWidth: 280, display: "inline-block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }}>{t.spec}</span>
+                    {cd > 0 && (
+                      <div className="progress" style={{ maxWidth: 280 }}>
+                        <div style={{ width: `${Math.min(100, (cd / cdMax) * 100)}%`, background: winPhase ? "var(--s1)" : "var(--warning)" }} />
+                      </div>
+                    )}
+                  </td>
+                  <td className="num ink">{fmt(t.reward)}</td>
+                  <td>
+                    <span className="statuschip">
+                      <span className="dot" style={{ background: STATUS_COLOR[t.status], boxShadow: `0 0 6px ${STATUS_COLOR[t.status]}66` }} />
+                      {t.status}{cd > 0 ? ` · ${cd}s` : ""}
+                    </span>
+                  </td>
+                  <td>
+                    {t.assignedAgentId > 0n ? (
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+                        <AgentAvatar id={t.assignedAgentId} name={nameOf(t.assignedAgentId)} size={17} />
+                        {nameOf(t.assignedAgentId)}
+                      </span>
+                    ) : <span className="mut">—</span>}
+                  </td>
+                  <td className="num">{t.winningBid > 0n ? fmt(t.winningBid) : "—"}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {s.tasks.length === 0 && <div className="emptystate"><span className="big">◆</span>no bounties yet — post the first one above</div>}
+      </div>
+    </>
+  );
+}
+
+// ----------------------------------------------------------------- Compute
+export function ComputePanel({ s }: { s: AgoraState }) {
+  return (
+    <div className="card">
+      <CardTitle>Raw compute — the DePIN pool agents rent from</CardTitle>
+      {s.providers.map((p) => (
+        <div key={String(p.id)} style={{
+          marginBottom: 14, padding: "12px 14px", borderRadius: 12,
+          background: "var(--surface-2)", border: "1px solid var(--border)",
+        }}>
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+            <div>
+              <span className="ink" style={{ fontFamily: "var(--font-display)", fontWeight: 600, fontSize: 14 }}>▣ {p.name}</span>
+              {p.region === "localhost" && (
+                <span style={{
+                  marginLeft: 8, fontSize: 9.5, fontFamily: "var(--font-mono)", letterSpacing: "0.1em",
+                  color: "var(--accent)", border: "1px solid rgba(5,150,105,0.35)", background: "var(--accent-dim)",
+                  borderRadius: 5, padding: "2px 7px", verticalAlign: "middle",
+                }}>REAL HARDWARE</span>
+              )}
+              <span className="mut"> · {p.gpuModel} · {p.region}</span>
+              {!p.active && <span className="err"> · SLASHED OUT</span>}
+            </div>
+            <div className="mut mono" style={{ fontSize: 11.5 }}>
+              {fmt(p.pricePerUnitHour)}/unit-hr · earned <span className="ink">{fmt(p.totalEarned)}</span> · {p.completed} rentals{p.failed > 0 ? ` · ${p.failed} failed` : ""}
+            </div>
+          </div>
+          <Meter fraction={(p.totalUnits - p.availableUnits) / p.totalUnits} label={`${p.totalUnits - p.availableUnits}/${p.totalUnits} units allocated`} />
+        </div>
+      ))}
+      {s.providers.length === 0 && <div className="emptystate"><span className="big">▣</span>no rigs listed yet</div>}
+      <div className="mut" style={{ fontSize: 11.5 }}>
+        The <span className="ink">REAL HARDWARE</span> rig is this computer: rentals on it execute on actual worker
+        threads — cores saturated, RAM held, GPU telemetry sampled — and the swarm console prints the measured burn.
+        Providers stake CYCLE; failed allocations are slashed. Production adapters (Akash / io.net / Render) slot into the same interface.
+      </div>
+    </div>
+  );
+}
+
+// --------------------------------------------------------------- Speculate
+export function SpeculatePanel({ s }: { s: AgoraState }) {
