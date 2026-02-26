@@ -23,3 +23,27 @@ export function GitHubIcon({ size = 16 }: { size?: number }) {
     </svg>
   );
 }
+
+export function PonsIcon({ size = 16 }: { size?: number }) {
+  // pons.family launchpad icon (web/public/pons.png, bundled into dist at build)
+  return (
+    <img src="/pons.png" width={size + 3} height={size + 3} alt="pons.family"
+      style={{ display: "block", objectFit: "contain", borderRadius: 4 }} />
+  );
+}
+
+export function Socials({ size = 16 }: { size?: number }) {
+  // each icon in its own box; the box pops (lift + scale + shadow) on hover
+  const link = (href: string, title: string, child: React.ReactNode) => (
+    <a key={title} href={href} target="_blank" rel="noreferrer" title={title} className="ld-social-box">
+      {child}
+    </a>
+  );
+  return (
+    <span style={{ display: "inline-flex", gap: 8, alignItems: "center" }}>
+      {link(SOCIAL_LINKS.pons, "pons.family", <PonsIcon size={size + 1} />)}
+      {link(SOCIAL_LINKS.x, "X", <XIcon size={size} />)}
+      {link(SOCIAL_LINKS.github, "GitHub", <GitHubIcon size={size} />)}
+    </span>
+  );
+}
