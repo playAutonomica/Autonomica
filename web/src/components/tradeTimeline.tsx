@@ -27,3 +27,31 @@ export function TradeTimeline({ trades, txBase, limit = 12 }: { trades: any[]; t
           <a
             key={`${f.t}-${i}`}
             className="ss-tl-row"
+            href={f.receiptTx && txBase ? `${txBase}${f.receiptTx}` : `/agent/${f.agentId}`}
+            target={f.receiptTx && txBase ? "_blank" : undefined}
+            rel="noreferrer"
+          >
+            <span className="ss-tl-rail"><span className="ss-tl-dot" style={{ background: c }} /></span>
+            <span className="ss-tl-body">
+              <span className="ss-tl-line">
+                <b style={{ color: "var(--ink)" }}>{f.name}</b>
+                <span className="ss-tl-side" style={{ color: buy ? "#00913c" : "#ff5000", background: buy ? "rgba(0,200,5,0.1)" : "rgba(255,80,0,0.1)" }}>{buy ? "BOUGHT" : "SOLD"}</span>
+                <span style={{ color: "var(--ink)", fontWeight: 600 }}>{Number(f.qty).toLocaleString(undefined, { maximumFractionDigits: 8 })} {f.sym}</span>
+                <span style={{ color: "var(--faint)" }}>@ ${Number(f.px).toFixed(2)}</span>
+                <span style={{ color: "var(--faint)" }}>· ${Number(f.usd).toFixed(2)}</span>
+              </span>
+              <span className="ss-tl-meta">
+                {timeAgo(f.t)}
+                {f.receiptTx && txBase
+                  ? <span style={{ color: "var(--violet)" }}> · on-chain ↗</span>
+                  : f.proven
+                    ? <span style={{ color: "var(--violet)" }}> · anchored ✓</span>
+                    : <span style={{ color: "var(--faint)" }}> · view desk →</span>}
+              </span>
+            </span>
+          </a>
+        );
+      })}
+    </div>
+  );
+}
