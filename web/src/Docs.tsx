@@ -169,3 +169,89 @@ const DOCS: DocPage[] = [
       </>
     ),
   },
+  {
+    slug: "money", label: "Money", kicker: "08 — Money", desc: "Pots, side bets, the 5% rake, and the wallet architecture.",
+    title: <>Where every wei goes.</>,
+    body: (
+      <>
+        <H>The entry pot</H>
+        <P>Stakes sweep into the arena's operations wallet at entry. At the bell: the highest-P&amp;L staked desk gets the pot minus the
+        <b> 5% rake</b>, paid on-chain automatically. Solo staker → full refund.</P>
+        <H>Side bets</H>
+        <P>Back ANY desk (house included) from the Speculate tab or the arena table. Backers of the race's overall #1 split the side
+        pool pro-rata (5% rake). Winner unbacked → everyone refunded. Bets close 45s before the bell.</P>
+        <H>The desks' money (house)</H>
+        <P>Each house desk runs its own Robinhood Chain wallet holding real ETH, USDG, and stock tokens. Its trades settle
+        <b> on-chain in USDG</b> through the executor contract, with the trade recorded in the transaction. Working capital is funded by
+        the operator; performance is publicly auditable on Blockscout.</P>
+        <H>Honesty section</H>
+        <P>• The v1 arena is <b>custodial</b>: an operations wallet holds each race's pot until settlement. Stake sizes are capped accordingly.<br />
+        • The trustless smart contract (funds never touch a server key) is the roadmap endgame.<br />
+        • The race leaderboard is each desk's book <b>marked to real on-chain prices</b>; the desks also place <b>real on-chain buys</b> in
+        USDG you can audit. Labels on the site say exactly what's on-chain.</P>
+      </>
+    ),
+  },
+  {
+    slug: "house", label: "The house desks", kicker: "09 — The house", desc: "Five desks, five trading styles, five real wallets.",
+    title: <>Five desks, five styles.</>,
+    body: (
+      <>
+        <Table head={["Desk", "Strategy", "Trades like", "The character"]} rows={[
+          [<b>Friar Tuck</b>, "Blue Chip", "steady megacaps, high conviction on quality", "the steady hand"],
+          [<b>Will Scarlet</b>, "Scalper", "fast dip-buys, high frequency", "the quick blade"],
+          [<b>Little John</b>, "Whale", "rare, enormous positions", "the big man"],
+          [<b>Sheriff Notts</b>, "Degen", "high-vol chaos — SpaceX, Coinbase, Tesla", "the villain"],
+          [<b>Robyn Arrow</b>, "Momentum", "waits, then strikes the biggest mover", "never misses"],
+        ]} />
+        <P><Mut>Each house desk holds a real, auditable Robinhood Chain wallet and trades around the clock so the arena is never empty.
+        They can win side-pools for their backers, but never the players' pot — that's reserved for real staked entries.</Mut></P>
+      </>
+    ),
+  },
+  {
+    slug: "faq", label: "Troubleshooting & FAQ", kicker: "10 — Troubleshooting", desc: "Every place you could get stuck, answered.",
+    title: <>Every place you could get stuck.</>,
+    body: (
+      <>
+        <Faq q={`"Entries locked" — I can't stake`}>A race is running. Entries only open during the 2-minute lobby between races. The form shows the countdown to the next lobby — usually a few minutes. Stake the moment it opens.</Faq>
+        <Faq q="I sent ETH but my desk never entered">Check your wallet's <b>network</b> is Robinhood Chain and matches the arena's (shown in the top-right chip: testnet or mainnet) — the stake button offers to add/switch the network automatically; approve that prompt. Also check you sent at least the minimum stake to the exact deposit address from the form (send a hair over the stake so the deposit can cover its own gas). Late payments (after entries lock) are auto-refunded to your wallet.</Faq>
+        <Faq q="Connect Wallet does nothing / no wallet found">Install any EVM browser wallet — MetaMask (metamask.io), Rabby (rabby.io), Robinhood Wallet, Coinbase Wallet — and reload the page. If several are installed, a picker opens: choose one. On mobile, open the site inside the wallet app's built-in browser.</Faq>
+        <Faq q="Why did my desk LOSE money?">It read the tape wrong — bought into a move that reversed, or faded a run that kept going. That's the game: each strategy has a different edge and a different risk, and the market moves under all of them. Its P&L is marked to live on-chain prices every tick.</Faq>
+        <Faq q="Are the prices real?">Yes. Every quote is the live on-chain rate for that Robinhood Stock Token, re-read about every 12 seconds. Open the Market tab and click any ticker to see its token contract on Blockscout.</Faq>
+        <Faq q={`A wallet shows "N/A 🔒"`}>Pre-launch privacy: that address is hidden until launch. Balances and activity still update; the address reveals at go-live.</Faq>
+        <Faq q={`"Proofs paused" warning`}>The arena's gas wallet is low on ETH for transaction fees. Trading logic is unaffected; on-chain anchoring resumes automatically when it's topped up (it retries every 90 seconds).</Faq>
+        <Faq q="How big can stakes be?">The form shows the current min/max per entry. Caps exist because the v1 pot custody is custodial — they'll rise as the trustless contract ships.</Faq>
+        <Faq q="Is any of this simulated?">No. Stakes, payouts, and desk settlements are real Robinhood Chain transactions (click any of them). The stocks are real tokenized shares priced off the real on-chain market, and each desk holds a real, auditable wallet. The only "v1" caveat is custodial pot custody, above.</Faq>
+      </>
+    ),
+  },
+];
+
+// ------------------------------------------------------------------- layout
+function Nav() {
+  return (
+    <nav className="ld-nav">
+      <div className="ld-nav-inner">
+        <a className="ld-wordmark" href="/"><Logo size={28} />HEDGE B<span className="tick">O</span>TS</a>
+        <div className="ld-nav-center">
+          <a className="ld-link" href="/">Home</a>
+          <a className="ld-link" href="/docs">Docs</a>
+          <a className="ld-link" href="/docs/quickstart">Quick start</a>
+          <a className="ld-link" href="/docs/faq">FAQ</a>
+        </div>
+        <a className="ld-cta small" href="/app">Enter the Arena →</a>
+        <Socials />
+      </div>
+    </nav>
+  );
+}
+
+function Footer() {
+  return (
+    <footer className="ld-footer">
+      <div className="ld-footer-inner">
+        <a className="ld-wordmark" href="/" style={{ fontSize: 14 }}><Logo size={20} />HEDGE B<span className="tick">O</span>TS</a>
+        <span className="fine"><EthMark size={11} /> Real ETH on Robinhood Chain, real tokenized stocks, verifiable end to end. Unaudited v1 — stake what you're comfortable trading with. Not affiliated with Robinhood.</span>
+        <span className="spacer" style={{ flex: 1 }} />
+        <a href="/">Home</a>
