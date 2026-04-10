@@ -41,3 +41,46 @@ export function detectWallets(): DetectedWallet[] {
   const list = [...found.values()];
   if (list.length === 0 && typeof window !== "undefined" && (window as any).ethereum) {
     // legacy single-injection fallback (pre-6963 wallets)
+    const eth = (window as any).ethereum;
+    list.push({ rdns: "injected", name: eth.isRabby ? "Rabby" : eth.isMetaMask ? "MetaMask" : "Injected wallet", icon: null, provider: eth });
+  }
+  return list;
+}
+export function onWalletsChanged(f: () => void): () => void {
+  discoveryListeners.add(f);
+  return () => { discoveryListeners.delete(f); };
+}
+
+export async function connectEvmWallet(provider: Eip1193Provider): Promise<string> {
+  const accounts: string[] = await provider.request({ method: "eth_requestAccounts" });
+  const addr = accounts?.[0];
+  if (!addr) throw new Error("wallet did not return an account");
+  return addr;
+}
+
+/** The chain block served by the arena's /state — everything a wallet needs. */
+export interface ArenaChain {
+  chainId: number; chainIdHex: string; name: string;
+  rpc: string; explorer: string; currency: string;
+}
+
+/** Make sure the wallet is on Robinhood Chain: switch, or add-then-switch. */
+export async function ensureChain(provider: Eip1193Provider, chain: ArenaChain): Promise<void> {
+  const current = await provider.request({ method: "eth_chainId" }).catch(() => null);
+  if (typeof current === "string" && parseInt(current, 16) === chain.chainId) return;
+  try {
+    await provider.request({ method: "wallet_switchEthereumChain", params: [{ chainId: chain.chainIdHex }] });
+  } catch (e: any) {
+    // 4902 = unknown chain → offer to add it, then it auto-switches
+    if (e?.code === 4902 || /unrecognized|not.*added|4902/i.test(String(e?.message ?? ""))) {
+      await provider.request({
+        method: "wallet_addEthereumChain",
+        params: [{
+          chainId: chain.chainIdHex,
+          chainName: chain.name,
+          nativeCurrency: { name: "Ether", symbol: chain.currency || "ETH", decimals: 18 },
+          rpcUrls: [chain.rpc],
+          blockExplorerUrls: chain.explorer ? [chain.explorer] : [],
+        }],
+      });
+    } else throw e;
