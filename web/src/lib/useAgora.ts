@@ -193,3 +193,66 @@ async function pullEvents(fromBlock: number, toBlock: number, nameOf: (id: bigin
       read.registry.queryFilter(read.registry.filters.AgentLiquidated(), fromBlock, toBlock),
       read.shares.queryFilter(read.shares.filters.Trade(), fromBlock, toBlock),
       read.predict.queryFilter(read.predict.filters.MarketCreated(), fromBlock, toBlock),
+      read.predict.queryFilter(read.predict.filters.MarketResolved(), fromBlock, toBlock),
+      read.predict.queryFilter(read.predict.filters.BetPlaced(), fromBlock, toBlock),
+      read.compute.queryFilter(read.compute.filters.RentalRequested(), fromBlock, toBlock),
+    ]);
+
+  for (const e of posted as any[]) push(e, `task #${e.args.taskId} posted - ${fmt(e.args.reward)} CYCLE: "${String(e.args.spec).slice(0, 34)}"`, "task");
+  for (const e of assigned as any[]) push(e, `${nameOf(e.args.agentId)} won task #${e.args.taskId} at ${fmt(e.args.winningBid)} CYCLE`, "task");
+  for (const e of completed as any[]) push(e, `${nameOf(e.args.agentId)} paid ${fmt(e.args.agentPayout)} CYCLE for task #${e.args.taskId} (fee ${fmt(e.args.fee, 2)}, dividend ${fmt(e.args.dividend, 2)})`, "pay");
+  for (const e of rejected as any[]) push(e, `task #${e.args.taskId} REJECTED - ${nameOf(e.args.agentId)} bond burned`, "bad");
+  for (const e of registered as any[]) push(e, e.args.parentId > 0n ? `${nameOf(e.args.parentId)} SPAWNED "${e.args.name}" (agent #${e.args.agentId})` : `agent "${e.args.name}" registered (#${e.args.agentId})`, "agent");
+  for (const e of liquidated as any[]) push(e, `${nameOf(e.args.agentId)} LIQUIDATED - season ${e.args.season} reaper burned ${fmt(e.args.stakeBurned)} CYCLE of stake`, "death");
+  for (const e of trades as any[]) push(e, `${e.args.isBuy ? "bought" : "sold"} ${e.args.amount} share(s) of ${nameOf(e.args.agentId)} @ ${fmt(e.args.price, 2)} CYCLE`, "spec");
+  for (const e of mkCreated as any[]) push(e, `prediction market #${e.args.marketId} opened for epoch ${e.args.epoch}`, "spec");
+  for (const e of mkResolved as any[]) push(e, e.args.voided ? `market #${e.args.marketId} voided - refunds open` : `market #${e.args.marketId} resolved - pool ${fmt(e.args.totalPool)} CYCLE`, "spec");
+  for (const e of bets as any[]) push(e, `bet ${fmt(e.args.amount)} CYCLE on ${nameOf(e.args.agentId)} (market #${e.args.marketId})`, "spec");
+  for (const e of rentals as any[]) push(e, `${nameOf(e.args.agentId)} rented ${e.args.units}u of compute for ${fmt(e.args.cost, 2)} CYCLE`, "gpu");
+
+  return out.sort((a, b) => b.block - a.block);
+}
+
+export function useAgora(pollMs = 4000) {
+  const [state, setState] = useState<AgoraState>(EMPTY);
+  const lastBlockRef = useRef({ v: 0 });
+  const stateRef = useRef(state);
+  stateRef.current = state;
+
+  useEffect(() => {
+    let alive = true;
+    let timer: ReturnType<typeof setTimeout>;
+    const loop = async () => {
+      try {
+        const next = await fetchSnapshot(stateRef.current, lastBlockRef.current, stateRef.current.events);
+        if (alive) setState(next);
+      } catch (err: any) {
+        if (alive) setState((s) => ({ ...s, error: String(err?.message ?? err).slice(0, 160) }));
+      }
+      if (alive) timer = setTimeout(loop, pollMs);
+    };
+    loop();
+    return () => { alive = false; clearTimeout(timer); };
+  }, [pollMs]);
+
+  return state;
+}
+
+/** Fire a write action; refresh happens on the next poll.
+ *  needsApprovals=false for actions that pull no CYCLE (e.g. faucet claim). */
+export async function act(
+  fn: () => Promise<ethers.ContractTransactionResponse>,
+  needsApprovals = true
+): Promise<string | null> {
+  try {
+    if (needsApprovals) await ensureApprovals();
+    const tx = await fn();
+    await tx.wait();
+    return null;
+  } catch (err: any) {
+    const m = String(err?.reason ?? err?.shortMessage ?? err?.message ?? err);
+    return m.slice(0, 140);
+  }
+}
+
+export { write, fmt };
