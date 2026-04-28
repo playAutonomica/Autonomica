@@ -85,4 +85,91 @@ function check(name, ok, detail = "") {
     pass++;
     console.log(`  \x1b[32m✓\x1b[0m ${name}${detail ? ` — ${detail}` : ""}`);
   } else {
-    fail++;
+    fail++;
+    console.log(`  \x1b[31m✗\x1b[0m ${name}${detail ? ` — ${detail}` : ""}`);
+  }
+}
+const read = (address, abi, functionName, args = []) =>
+  pub.readContract({ address, abi, functionName, args });
+async function send(wallet, req, attempt = 0) {
+  const { request } = await pub.simulateContract({ ...req, account: wallet.account });
+  const hash = await wallet.writeContract(request);
+  const receipt = await pub.waitForTransactionReceipt({ hash });
+  if (receipt.status !== "success") {
+    if (attempt < 2) {
+      await new Promise((r) => setTimeout(r, 2500));
+      return send(wallet, req, attempt + 1);
+    }
+    throw new Error(`tx reverted: ${req.functionName}`);
+  }
+  return receipt;
+}
+const deadline = () => BigInt(Math.floor(Date.now() / 1000) + 3600);
+const ZERO32 = `0x${"0".repeat(64)}`;
+
+await test.impersonateAccount({ address: TRADER });
+await test.setBalance({ address: TRADER, value: parseEther("1000000") });
+await test.setBalance({ address: dev.address, value: parseEther("1000000") });
+
+console.log("\n— current mainnet wiring (forked as-is) —");
+check(
+  "locker pays the active splitter",
+  ((await read(A.locker, launchLockerAbi, "protocolFeeRecipient")) ?? "").toLowerCase() ===
+    A.splitter.toLowerCase(),
+);
+check(
+  "flywheel swaps through the Sushi router",
+  ((await read(A.flywheel, flywheelAbi, "swapRouter")) ?? "").toLowerCase() ===
+    A.sushiRouter.toLowerCase(),
+);
+
+console.log("\n— launching the $PAR stand-in on SushiSwap (Protected, dev buy) —");
+const cfg = await read(A.launchFactory, launchFactoryAbi, "getLaunchConfig", [2n]); // Sushi Protected
+check("config 2 is the Sushi Protected preset", cfg.dexId === 1n && cfg.restrictionBlocks > 0);
+// Protected mode caps buys at 1% of supply — a small dev buy fits under it
+const devBuy = parseEther("0.004");
+const rcpt = await send(wDev, {
+  address: A.launchFactory,
+  abi: launchFactoryAbi,
+  functionName: "launchToken",
+  args: [
+    {
+      name: "Par Launch",
+      symbol: "PARTEST",
+      metadataURI: "",
+      configId: 2n,
+      expectedDexId: cfg.dexId,
+      expectedQuoteToken: cfg.quoteToken,
+      expectedTotalSupply: cfg.totalSupply,
+      expectedPoolFee: cfg.poolFee,
+      creatorFeeRecipient: dev.address,
+      feeHandle: ZERO32,
+      initialBuyQuoteAmount: devBuy,
+      minTokensOut: 0n,
+      initialBuyRecipient: dev.address,
+      deadline: deadline(),
+    },
+  ],
+  value: cfg.launchFeeWei + devBuy,
+});
+const launch = decodeTokenLaunched(rcpt, A.launchFactory);
+const par = launch.token;
+check("launched on Sushi with anti-snipe", launch.dexId === 1n, par);
+check("dev buy landed", (await read(par, erc20Abi, "balanceOf", [dev.address])) > 0n);
+
+// leave the protected window (fork uses block.number for L2Block)
+await test.mine({ blocks: Number(launch.restrictionsEndBlock - launch.launchBlock) + 2 });
+
+console.log("\n— the market trades it —");
+await send(wTrader, {
+  address: A.weth,
+  abi: wnativeAbi,
+  functionName: "deposit",
+  args: [],
+  value: parseEther("2"),
+});
+await send(wTrader, {
+  address: A.weth,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [A.sushiRouter, parseEther("2")],
