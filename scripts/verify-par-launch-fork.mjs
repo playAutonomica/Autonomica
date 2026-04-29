@@ -172,4 +172,92 @@ await send(wTrader, {
   address: A.weth,
   abi: erc20Abi,
   functionName: "approve",
-  args: [A.sushiRouter, parseEther("2")],
+  args: [A.sushiRouter, parseEther("2")],
+});
+for (let i = 0; i < 3; i++) {
+  await send(wTrader, {
+    address: A.sushiRouter,
+    abi: swapRouterAbi,
+    functionName: "exactInputSingle",
+    args: [
+      {
+        tokenIn: A.weth,
+        tokenOut: par,
+        fee: cfg.poolFee,
+        recipient: TRADER,
+        deadline: deadline(),
+        amountIn: parseEther("0.3"),
+        amountOutMinimum: 0n,
+        sqrtPriceLimitX96: 0n,
+      },
+    ],
+  });
+}
+const bag = await read(par, erc20Abi, "balanceOf", [TRADER]);
+await send(wTrader, {
+  address: par,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [A.sushiRouter, bag],
+});
+await send(wTrader, {
+  address: A.sushiRouter,
+  abi: swapRouterAbi,
+  functionName: "exactInputSingle",
+  args: [
+    {
+      tokenIn: par,
+      tokenOut: A.weth,
+      fee: cfg.poolFee,
+      recipient: TRADER,
+      deadline: deadline(),
+      amountIn: bag / 2n,
+      amountOutMinimum: 0n,
+      sqrtPriceLimitX96: 0n,
+    },
+  ],
+});
+check("buys and sells flow on the Sushi pool", bag > 0n, `${bag / 10n ** 18n} tokens traded`);
+
+console.log("\n— fee split: 60% creator · 30% treasury · 10% flywheel —");
+await send(wTrader, {
+  address: A.locker,
+  abi: launchLockerAbi,
+  functionName: "collectFees",
+  args: [par],
+});
+const creatorShare = await read(A.locker, launchLockerAbi, "claimable", [dev.address, A.weth]);
+const splitterShare = await read(A.locker, launchLockerAbi, "claimable", [A.splitter, A.weth]);
+const total = creatorShare + splitterShare;
+check(
+  "creator gets 60% of collected WETH fees",
+  total > 0n && (creatorShare * 10_000n) / total === 6000n,
+  `${creatorShare} wei`,
+);
+
+const flyBefore = await read(A.weth, erc20Abi, "balanceOf", [A.flywheel]);
+await send(wTrader, {
+  address: A.splitter,
+  abi: splitterAbi,
+  functionName: "sweep",
+  args: [A.weth],
+});
+const flyGot = (await read(A.weth, erc20Abi, "balanceOf", [A.flywheel])) - flyBefore;
+const held = await read(A.splitter, splitterAbi, "treasuryHeld", [A.weth]);
+check(
+  "flywheel received 10% of the total (25% of protocol share)",
+  (flyGot * 10_000n) / total === 1000n,
+  `${flyGot} wei`,
+);
+check("treasury holds 30%, claim-only", (held * 10_000n) / total === 3000n, `${held} wei`);
+const devWethBefore = await read(A.weth, erc20Abi, "balanceOf", [dev.address]);
+await send(wDev, {
+  address: A.splitter,
+  abi: splitterAbi,
+  functionName: "claimTreasury",
+  args: [A.weth],
+});
+check(
+  "dev wallet claimed the treasury share",
+  (await read(A.weth, erc20Abi, "balanceOf", [dev.address])) - devWethBefore >= held,
+);
