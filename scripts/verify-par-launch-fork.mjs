@@ -260,4 +260,90 @@ await send(wDev, {
 check(
   "dev wallet claimed the treasury share",
   (await read(A.weth, erc20Abi, "balanceOf", [dev.address])) - devWethBefore >= held,
-);
+);
+
+console.log("\n— pointing the flywheel at the token (the post-launch wiring) —");
+await send(wDev, { address: A.flywheel, abi: flywheelAbi, functionName: "setTarget", args: [par] });
+const wethRoute = encodePacked(["address", "uint24", "address"], [A.weth, cfg.poolFee, par]);
+await send(wDev, {
+  address: A.flywheel,
+  abi: flywheelAbi,
+  functionName: "setRoute",
+  args: [A.weth, wethRoute],
+});
+const usdgRoute = encodePacked(
+  ["address", "uint24", "address", "uint24", "address"],
+  [A.usdg, 3000, A.weth, cfg.poolFee, par],
+);
+await send(wDev, {
+  address: A.flywheel,
+  abi: flywheelAbi,
+  functionName: "setRoute",
+  args: [A.usdg, usdgRoute],
+});
+check("target + WETH & USDG routes set (routes validated on-chain to end at the token)", true);
+
+console.log("\n— feed(): the flywheel buys on Sushi and burns —");
+const deadBefore = await read(par, erc20Abi, "balanceOf", [A.dead]);
+await send(wTrader, {
+  address: A.flywheel,
+  abi: flywheelAbi,
+  functionName: "feed",
+  args: [A.weth, 1n, deadline()],
+});
+const burnedFromWeth = (await read(par, erc20Abi, "balanceOf", [A.dead])) - deadBefore;
+check(
+  "WETH fees bought the token on Sushi and burned it",
+  burnedFromWeth > 0n,
+  `${burnedFromWeth / 10n ** 18n} tokens → 0xdead`,
+);
+
+// USDG leg: send the flywheel some USDG (as the stable factory's sweeps would) and feed
+await send(wTrader, {
+  address: A.weth,
+  abi: erc20Abi,
+  functionName: "approve",
+  args: [A.sushiRouter, parseEther("1")],
+});
+await send(wTrader, {
+  address: A.sushiRouter,
+  abi: swapRouterAbi,
+  functionName: "exactInputSingle",
+  args: [
+    {
+      tokenIn: A.weth,
+      tokenOut: A.usdg,
+      fee: 3000,
+      recipient: TRADER,
+      deadline: deadline(),
+      amountIn: parseEther("0.05"),
+      amountOutMinimum: 0n,
+      sqrtPriceLimitX96: 0n,
+    },
+  ],
+});
+const usdgBal = await read(A.usdg, erc20Abi, "balanceOf", [TRADER]);
+await send(wTrader, {
+  address: A.usdg,
+  abi: erc20Abi,
+  functionName: "transfer",
+  args: [A.flywheel, usdgBal],
+});
+const deadBefore2 = await read(par, erc20Abi, "balanceOf", [A.dead]);
+await send(wTrader, {
+  address: A.flywheel,
+  abi: flywheelAbi,
+  functionName: "feed",
+  args: [A.usdg, 1n, deadline()],
+});
+const burnedFromUsdg = (await read(par, erc20Abi, "balanceOf", [A.dead])) - deadBefore2;
+check(
+  "USDG (stable-side) fees route USDG→WETH→token on Sushi and burn",
+  burnedFromUsdg > 0n,
+  `${burnedFromUsdg / 10n ** 18n} tokens → 0xdead`,
+);
+
+console.log(
+  `\n${"=".repeat(62)}\n  $PAR DRESS REHEARSAL: ${pass} passed, ${fail} failed\n${"=".repeat(62)}\n`,
+);
+process.exit(fail > 0 ? 1 : 0);
